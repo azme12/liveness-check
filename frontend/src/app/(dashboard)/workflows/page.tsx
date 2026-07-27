@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Copy, Filter, Plus, RefreshCw } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
@@ -113,12 +114,12 @@ export default function WorkflowsPage() {
                 className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]"
               >
                 <td className="px-4 py-3">
-                  <a
+                  <Link
                     href={`/workflows/${w.id}`}
                     className="block font-medium text-[var(--accent)] underline underline-offset-2 hover:text-white"
                   >
                     {w.name}
-                  </a>
+                  </Link>
                   <div className="mt-1 flex items-center gap-1 font-mono text-xs text-[var(--muted)]">
                     ID: {w.id}
                     <button
@@ -132,23 +133,23 @@ export default function WorkflowsPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <a href={`/workflows/${w.id}`} className="block text-[var(--muted)] hover:text-white">
+                  <Link href={`/workflows/${w.id}`} className="block text-[var(--muted)] hover:text-white">
                     {w.description || "—"}
-                  </a>
+                  </Link>
                 </td>
                 <td className="px-4 py-3">
-                  <a href={`/workflows/${w.id}`} className="inline-block">
+                  <Link href={`/workflows/${w.id}`} className="inline-block">
                     {w.status === "active" ? (
                       <Badge tone="success">Active</Badge>
                     ) : (
                       <Badge>Inactive</Badge>
                     )}
-                  </a>
+                  </Link>
                 </td>
                 <td className="px-4 py-3">
-                  <a href={`/workflows/${w.id}`} className="block text-[var(--muted)] hover:text-white">
+                  <Link href={`/workflows/${w.id}`} className="block text-[var(--muted)] hover:text-white">
                     {formatDate(w.updated_at)}
-                  </a>
+                  </Link>
                 </td>
               </tr>
             ))}
