@@ -45,41 +45,43 @@ docker compose up --build -d
 | Component | Host | Notes |
 |-----------|------|--------|
 | **Frontend** | [Vercel](https://vercel.com) | Root directory: `frontend` |
-| **Backend** | Railway, Render, Fly.io, or VPS | FastAPI + long-running process |
+| **Backend** | [Render](https://render.com) | Docker service from `backend/` |
 | **Database** | [MongoDB Atlas](https://www.mongodb.com/atlas) | Connection string for backend |
 
-### Vercel (frontend + backend together)
+### 1. Backend on Render
 
-The repo includes a root [`vercel.json`](vercel.json) for **Vercel Services** (Next.js + FastAPI on one domain).
-
-1. Import repo → **Application Preset: Services**
-2. Click **Refresh** after `vercel.json` is on `main`
-3. In **Project → Settings → Environment Variables**, add:
-   - `LIVENCUBE_MONGODB_URL` / `LIVENESS_MONGODB_URL` → MongoDB Atlas URI
-   - `LIVENCUBE_JWT_SECRET` → strong secret
-   - `LIVENCUBE_CORS_ORIGINS` → your Vercel URL (e.g. `https://liveness-check.vercel.app`)
-4. Deploy. API routes go to `/api/*` on the same domain (no `NEXT_PUBLIC_API_URL` needed).
-
-**MongoDB Atlas is required** — Vercel has no built-in MongoDB.
-
-### Vercel (frontend only)
-
-If you prefer frontend-only on Vercel:
-
-1. Set **Root Directory** to `frontend` (Next.js preset, not Services)
-2. Set `NEXT_PUBLIC_API_URL` to your backend URL (Railway/Render)
-3. Deploy backend separately (see below)
-
-### Backend on Railway / Render
+1. Create a [MongoDB Atlas](https://www.mongodb.com/atlas) cluster and get a connection string.
+2. In Render → **New → Blueprint** (or Web Service) → connect `azme12/liveness-check`.
+3. Use the included [`render.yaml`](render.yaml), or create a **Web Service** manually:
+   - **Root Directory:** `backend`
+   - **Runtime:** Docker (`Dockerfile`)
+   - **Health check:** `/health`
+4. Set environment variables:
 
 ```bash
-LIVENCUBE_MONGODB_URL=mongodb+srv://...   # Atlas
+LIVENCUBE_MONGODB_URL=mongodb+srv://USER:PASS@cluster.mongodb.net/liveness
+LIVENCUBE_MONGODB_DB=liveness
 LIVENCUBE_JWT_SECRET=<strong-random-secret>
 LIVENCUBE_CORS_ORIGINS=https://your-app.vercel.app
-LIVENESS_MONGODB_URL=mongodb+srv://...
+LIVENESS_MONGODB_URL=mongodb+srv://USER:PASS@cluster.mongodb.net/liveness
+LIVENESS_MONGODB_DB=liveness
 ```
 
-Start with: `uvicorn app.main:app --host 0.0.0.0 --port 8100`
+5. Deploy. Note your public URL, e.g. `https://liveness-api.onrender.com`.
+
+> After the frontend URL is known, update `LIVENCUBE_CORS_ORIGINS` to match (comma-separated if you need localhost too).
+
+### 2. Frontend on Vercel
+
+1. Import the repo on Vercel → **Next.js** preset (not Services).
+2. Set **Root Directory** to `frontend`.
+3. Add environment variable:
+
+| Name | Value |
+|------|--------|
+| `NEXT_PUBLIC_API_URL` | `https://liveness-api.onrender.com` (your Render URL, no trailing slash) |
+
+4. Deploy. Login: `admin@trustanova.dev` / `admin123`.
 
 ## Layout
 

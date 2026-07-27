@@ -28,6 +28,6 @@ RUN pip install --upgrade pip \
 EXPOSE 8100
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8100/health || exit 1
+    CMD curl -fsS http://127.0.0.1:${PORT:-8100}/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100"]
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8100}
