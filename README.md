@@ -140,13 +140,14 @@ Dockerfile
 
 ---
 
-## Docker
+## Docker (all data inside Docker volumes)
 
 ```bash
 docker compose up --build -d
 
-# Swagger UI
-open http://127.0.0.1:8000/docs
+# Swagger UI  → http://127.0.0.1:8000/docs
+# Health      → http://127.0.0.1:8000/health
+# DB tables   → http://127.0.0.1:8080   (sqlite-web)
 ```
 
 ```bash
@@ -154,17 +155,24 @@ docker compose logs -f api
 docker compose down
 ```
 
-API key (default): `sk_test_liveness_dev` — override with `LIVENESS_API_KEY` in the environment.
+API key (default): `sk_test_liveness_dev` — override with `LIVENESS_API_KEY`.
 
----
+SQLite lives in Docker volume `liveness-data` at `/app/data/liveness.db` (not on your host project folder).
 
-## Infra (optional)
+### View tables (Docker)
+
+**Browser:** http://127.0.0.1:8080
+
+**CLI:**
 
 ```bash
-docker compose up -d
+docker exec -it liveness-api python -c "
+import sqlite3
+c = sqlite3.connect('/app/data/liveness.db')
+print(c.execute(\"SELECT name FROM sqlite_master WHERE type='table'\").fetchall())
+print(c.execute('SELECT * FROM clients').fetchall())
+"
 ```
-
-SQLite is used inside the container by default (volumes for `data` / `storage` / `models`).
 
 ---
 
