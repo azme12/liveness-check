@@ -28,7 +28,9 @@ from liveness.storage import BlobStore
 from liveness.types import CheckStatus, CheckType, SessionStatus, new_id, utc_now
 from liveness.version import __version__
 
-router = APIRouter()
+router = APIRouter(
+    tags=["liveness"],
+)
 
 
 def _client_out(c: Client) -> ClientOut:
@@ -57,7 +59,7 @@ def _check_out(c: Check) -> CheckOut:
     )
 
 
-@router.get("/health")
+@router.get("/health", tags=["system"], openapi_extra={"security": []})
 async def health(engine: CheckEngine = Depends(get_check_engine)):
     return {
         "status": "ok",

@@ -32,10 +32,12 @@ pip install -e ".[dev]"
 # Run API
 cp .env.example .env
 liveness serve --reload
-# → http://127.0.0.1:8000/docs
+# → Swagger UI:  http://127.0.0.1:8000/docs
+# → ReDoc:       http://127.0.0.1:8000/redoc
+# → OpenAPI:     http://127.0.0.1:8000/openapi.json
 ```
 
-Default API key: `sk_test_liveness_dev` (header `X-Api-Key`).
+Default API key: `sk_test_liveness_dev` (header `X-Api-Key` — use **Authorize** in Swagger).
 
 ### Optional ML extras
 
@@ -100,7 +102,7 @@ curl -s -X POST http://127.0.0.1:8000/v1/checks \
 # 4. Poll GET /v1/checks/{id} until status=complete
 ```
 
-Interactive docs: **http://127.0.0.1:8000/docs**
+Interactive docs: **Swagger** http://127.0.0.1:8000/docs · **ReDoc** http://127.0.0.1:8000/redoc
 
 ---
 
