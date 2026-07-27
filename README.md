@@ -48,17 +48,29 @@ docker compose up --build -d
 | **Backend** | Railway, Render, Fly.io, or VPS | FastAPI + long-running process |
 | **Database** | [MongoDB Atlas](https://www.mongodb.com/atlas) | Connection string for backend |
 
-### Vercel (frontend)
+### Vercel (frontend + backend together)
 
-1. Import repo `azme12/liveness-check`.
-2. Set **Root Directory** to `frontend`.
-3. Add environment variable:
-   - `NEXT_PUBLIC_API_URL` = public backend URL (e.g. `https://api.yourdomain.com`)
-4. Deploy. Do not use `127.0.0.1` — the browser must reach your API over HTTPS.
+The repo includes a root [`vercel.json`](vercel.json) for **Vercel Services** (Next.js + FastAPI on one domain).
 
-### Backend + MongoDB
+1. Import repo → **Application Preset: Services**
+2. Click **Refresh** after `vercel.json` is on `main`
+3. In **Project → Settings → Environment Variables**, add:
+   - `LIVENCUBE_MONGODB_URL` / `LIVENESS_MONGODB_URL` → MongoDB Atlas URI
+   - `LIVENCUBE_JWT_SECRET` → strong secret
+   - `LIVENCUBE_CORS_ORIGINS` → your Vercel URL (e.g. `https://liveness-check.vercel.app`)
+4. Deploy. API routes go to `/api/*` on the same domain (no `NEXT_PUBLIC_API_URL` needed).
 
-On your backend host, set at minimum:
+**MongoDB Atlas is required** — Vercel has no built-in MongoDB.
+
+### Vercel (frontend only)
+
+If you prefer frontend-only on Vercel:
+
+1. Set **Root Directory** to `frontend` (Next.js preset, not Services)
+2. Set `NEXT_PUBLIC_API_URL` to your backend URL (Railway/Render)
+3. Deploy backend separately (see below)
+
+### Backend on Railway / Render
 
 ```bash
 LIVENCUBE_MONGODB_URL=mongodb+srv://...   # Atlas
