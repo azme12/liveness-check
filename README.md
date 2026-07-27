@@ -4,8 +4,6 @@
 
 Built with **FastAPI 0.140+**, Python 3.11+, and optional open-source ML backends (PaddleOCR, InsightFace, MiniFAS ONNX).
 
-> Full product blueprint: [`docs/LIVENESS_PLATFORM_GUIDE.md`](docs/LIVENESS_PLATFORM_GUIDE.md)
-
 ---
 
 ## What you get (Phase 1)
@@ -118,7 +116,6 @@ src/liveness/
   storage.py    # local blob store (swap for S3/MinIO)
   cli.py        # `liveness serve`
 tests/
-docs/           # product guide (Markdown)
 docker-compose.yml   # Postgres + Redis + MinIO
 ```
 
