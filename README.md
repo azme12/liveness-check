@@ -40,6 +40,35 @@ npm run dev
 docker compose up --build -d
 ```
 
+## Deploy (production)
+
+| Component | Host | Notes |
+|-----------|------|--------|
+| **Frontend** | [Vercel](https://vercel.com) | Root directory: `frontend` |
+| **Backend** | Railway, Render, Fly.io, or VPS | FastAPI + long-running process |
+| **Database** | [MongoDB Atlas](https://www.mongodb.com/atlas) | Connection string for backend |
+
+### Vercel (frontend)
+
+1. Import repo `azme12/liveness-check`.
+2. Set **Root Directory** to `frontend`.
+3. Add environment variable:
+   - `NEXT_PUBLIC_API_URL` = public backend URL (e.g. `https://api.yourdomain.com`)
+4. Deploy. Do not use `127.0.0.1` — the browser must reach your API over HTTPS.
+
+### Backend + MongoDB
+
+On your backend host, set at minimum:
+
+```bash
+LIVENCUBE_MONGODB_URL=mongodb+srv://...   # Atlas
+LIVENCUBE_JWT_SECRET=<strong-random-secret>
+LIVENCUBE_CORS_ORIGINS=https://your-app.vercel.app
+LIVENESS_MONGODB_URL=mongodb+srv://...
+```
+
+Start with: `uvicorn app.main:app --host 0.0.0.0 --port 8100`
+
 ## Layout
 
 | Path | Purpose |
