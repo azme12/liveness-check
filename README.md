@@ -118,7 +118,8 @@ src/liveness/
   storage.py    # local blob store (swap for S3/MinIO)
   cli.py        # `liveness serve`
 tests/
-docker-compose.yml   # Postgres + Redis + MinIO
+docker-compose.yml
+Dockerfile
 ```
 
 ---
@@ -139,13 +140,31 @@ docker-compose.yml   # Postgres + Redis + MinIO
 
 ---
 
+## Docker
+
+```bash
+docker compose up --build -d
+
+# Swagger UI
+open http://127.0.0.1:8000/docs
+```
+
+```bash
+docker compose logs -f api
+docker compose down
+```
+
+API key (default): `sk_test_liveness_dev` — override with `LIVENESS_API_KEY` in the environment.
+
+---
+
 ## Infra (optional)
 
 ```bash
-docker compose up -d   # Postgres, Redis, MinIO
+docker compose up -d
 ```
 
-Then set `LIVENESS_DATABASE_URL` to Postgres when you add the asyncpg driver.
+SQLite is used inside the container by default (volumes for `data` / `storage` / `models`).
 
 ---
 

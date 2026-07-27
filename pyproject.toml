@@ -69,9 +69,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/liveness-hq/liveness"
-Documentation = "https://github.com/liveness-hq/liveness/tree/main/docs"
-Issues = "https://github.com/liveness-hq/liveness/issues"
+Homepage = "https://github.com/azme12/liveness-check"
+Documentation = "https://github.com/azme12/liveness-check#readme"
+Issues = "https://github.com/azme12/liveness-check/issues"
 
 [project.scripts]
 liveness = "liveness.cli:main"
@@ -83,7 +83,7 @@ packages = ["src/liveness"]
 "src/liveness" = "liveness"
 
 [tool.hatch.build.targets.sdist]
-include = ["src/liveness", "README.md", "LICENSE", "docs"]
+include = ["src/liveness", "README.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
