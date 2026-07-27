@@ -27,20 +27,28 @@ dist/
 *.swp
 .DS_Store
 
-# Local runtime
-data/
-*.db
-*.sqlite3
+# Env / secrets
 .env
 .env.local
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+
+# Backend runtime
+backend/.venv/
+backend/storage/
+backend/**/__pycache__/
 models/*.onnx
 models/**/*.onnx
-!models/.gitkeep
+!**/models/.gitkeep
 
-# Uploads / blobs
+# Uploads
 storage/
 uploads/
 *.log
+*.db
+*.sqlite3
 
-# Agent / tooling
+# Agent
 agent-tools/

@@ -7,7 +7,7 @@ name = "liveness"
 version = "0.1.0"
 description = "Open-source identity verification & compliance platform — document OCR, liveness, face match, AML checks"
 readme = "README.md"
-license = "Apache-2.0"
+license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [{ name = "Liveness Contributors" }]
 keywords = [

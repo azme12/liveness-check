@@ -64,5 +64,12 @@ async def process_check(check_id: str) -> None:
                 "updated_at": utc_now(),
             },
         )
+    # Notify Trustanova webhooks when running inside the unified backend
+    try:
+        from app.services.webhooks import emit_check_finished_from_id
+
+        await emit_check_finished_from_id(check_id)
+    except Exception:  # noqa: BLE001
+        pass
     # touch DB to keep connection warm / ensure writes flushed
     _ = get_database()

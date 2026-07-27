@@ -1,0 +1,32 @@
+/** ComplyCube-compatible webhook event types for Trustanova */
+export const WEBHOOK_EVENT_TYPES = [
+  { value: "workflow.session.started", description: "A workflow session has been started." },
+  { value: "workflow.session.cancelled", description: "A workflow session has been cancelled." },
+  { value: "workflow.session.processing", description: "Verification checks are now in progress." },
+  { value: "workflow.session.completed", description: "A workflow session has been completed." },
+  { value: "workflow.session.updated", description: "A workflow session outcome has been updated." },
+  { value: "workflow.session.abandoned", description: "A workflow session was abandoned." },
+  { value: "check.pending", description: "A check has been created and is in pending state." },
+  { value: "check.completed", description: "A check has completed with any outcome." },
+  { value: "check.completed.clear", description: "A check has completed with clear outcome." },
+  { value: "check.completed.attention", description: "A check has completed with attention outcome." },
+  { value: "check.completed.rejected", description: "A check has completed with rejected outcome." },
+  { value: "check.completed.match_confirmed", description: "A check has completed with match_confirmed outcome." },
+  { value: "check.monitoring.attention", description: "A monitoring check has completed with attention outcome." },
+  { value: "check.failed", description: "A check has failed." },
+  { value: "check.updated", description: "A check has been updated." },
+  { value: "client.created", description: "A client has been created." },
+  { value: "client.updated", description: "A client has been updated." },
+  { value: "client.deleted", description: "A client has been deleted." },
+  { value: "document.created", description: "A document has been created." },
+  { value: "document.updated", description: "A document has been updated." },
+  { value: "document.updated.image_uploaded", description: "A document image has been uploaded." },
+  { value: "document.updated.image_deleted", description: "A document image has been deleted." },
+  { value: "document.deleted", description: "A document has been deleted." },
+  { value: "address.created", description: "An address has been created." },
+  { value: "address.updated", description: "An address has been updated." },
+  { value: "address.deleted", description: "An address has been deleted." },
+  { value: "*", description: "All events" },
+] as const;
+
+export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number]["value"];

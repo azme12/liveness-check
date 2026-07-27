@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+:root,
+html[data-theme="dark"] {
+  --bg: #0c0d10;
+  --bg-elevated: #15171c;
+  --bg-panel: #1a1d24;
+  --bg-hover: #22262f;
+  --border: #2a2f3a;
+  --text: #e8eaef;
+  --muted: #9aa3b2;
+  --accent: #10b981;
+  --accent-soft: rgba(16, 185, 129, 0.16);
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --live: #22c55e;
+  --sandbox: #f97316;
+  --popover-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --scrollbar: #333948;
+}
+
+html[data-theme="light"] {
+  --bg: #f4f6f9;
+  --bg-elevated: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-hover: #eef1f6;
+  --border: #d8dee8;
+  --text: #151a23;
+  --muted: #5f6b7c;
+  --accent: #059669;
+  --accent-soft: rgba(5, 150, 105, 0.12);
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --live: #16a34a;
+  --sandbox: #ea580c;
+  --popover-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  --scrollbar: #c5cdd9;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elevated: var(--bg-elevated);
+  --color-panel: var(--bg-panel);
+  --color-hover: var(--bg-hover);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-jakarta);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-jakarta), "Segoe UI", sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+input,
+button,
+select,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 8px;
+}
