@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from liveness.checks import CheckEngine
 from liveness.config import Settings, get_settings
@@ -46,6 +45,3 @@ ApiKey = Depends(require_api_key)
 EngineDep = Depends(get_check_engine)
 StoreDep = Depends(get_blob_store)
 SettingsDep = Depends(get_settings)
-
-# For type annotations in routes
-AsyncDb = AsyncSession

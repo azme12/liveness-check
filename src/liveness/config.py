@@ -12,14 +12,14 @@ class Settings(BaseSettings):
     app_name: str = "Liveness"
     debug: bool = False
     api_key: str = "sk_test_liveness_dev"
-    database_url: str = "sqlite+aiosqlite:///./data/liveness.db"
+    mongodb_url: str = "mongodb://localhost:27017"
+    mongodb_db: str = "liveness"
     storage_dir: Path = Path("./storage")
     models_dir: Path = Path("./models")
     face_match_threshold: float = 0.45
     liveness_threshold: float = 0.5
     quality_threshold: float = 0.35
     session_ttl_minutes: int = 30
-    # When True, heavy ML deps are optional — heuristics / stubs used instead
     allow_heuristic_fallback: bool = True
 
 

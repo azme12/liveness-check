@@ -1,4 +1,4 @@
-"""API integration tests with httpx + ASGI."""
+"""API integration tests with httpx + ASGI + mongomock."""
 
 from __future__ import annotations
 
@@ -7,26 +7,31 @@ import io
 import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
+from mongomock_motor import AsyncMongoMockClient
 from PIL import Image
 
 from liveness.api import create_app
 from liveness.config import get_settings
+import liveness.db as db_mod
 
 
 @pytest.fixture(autouse=True)
 def _tmp_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("LIVENESS_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/test.db")
     monkeypatch.setenv("LIVENESS_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.setenv("LIVENESS_API_KEY", "sk_test_liveness_dev")
+    monkeypatch.setenv("LIVENESS_MONGODB_DB", "liveness_test")
     get_settings.cache_clear()
+    db_mod._client = None
+    db_mod._db = None
     yield
     get_settings.cache_clear()
+    db_mod._client = None
+    db_mod._db = None
 
 
 def _jpeg_bytes(color=(100, 120, 140), size=(400, 300)) -> bytes:
     arr = np.zeros((size[1], size[0], 3), dtype=np.uint8)
     arr[:] = color
-    # texture
     arr[::4, ::4] = 200
     img = Image.fromarray(arr, mode="RGB")
     buf = io.BytesIO()
@@ -35,11 +40,19 @@ def _jpeg_bytes(color=(100, 120, 140), size=(400, 300)) -> bytes:
 
 
 @pytest.fixture
-async def client():
+async def client(monkeypatch):
+    mock = AsyncMongoMockClient()
+
+    def _get_client():
+        return mock
+
+    monkeypatch.setattr(db_mod, "get_client", _get_client)
+    db_mod._client = mock
+    db_mod._db = mock["liveness_test"]
+
     app = create_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Trigger lifespan
         async with app.router.lifespan_context(app):
             yield ac
 
@@ -50,7 +63,7 @@ async def test_health(client: AsyncClient):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert "backends" in body
+    assert body["backends"]["db"] == "mongodb"
 
 
 @pytest.mark.asyncio
@@ -98,10 +111,9 @@ async def test_identity_check_flow(client: AsyncClient):
     check_id = chk.json()["id"]
     assert chk.json()["status"] == "pending"
 
-    # Background task runs; poll a few times
     import asyncio
 
-    for _ in range(20):
+    for _ in range(30):
         got = await client.get(f"/v1/checks/{check_id}", headers=headers)
         assert got.status_code == 200
         if got.json()["status"] in {"complete", "failed"}:

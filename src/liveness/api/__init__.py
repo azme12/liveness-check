@@ -10,7 +10,7 @@ from fastapi.openapi.utils import get_openapi
 
 from liveness.api.routes import router
 from liveness.config import get_settings
-from liveness.db import init_db
+from liveness.db import close_db, init_db
 from liveness.version import __version__
 
 
@@ -21,6 +21,7 @@ async def lifespan(_app: FastAPI):
     settings.models_dir.mkdir(parents=True, exist_ok=True)
     await init_db()
     yield
+    await close_db()
 
 
 def _custom_openapi(app: FastAPI):
@@ -50,7 +51,7 @@ def create_app() -> FastAPI:
         version=__version__,
         description=(
             "Open-source identity verification API — document OCR, passive liveness, "
-            "face match, and AML hooks. Built on FastAPI 0.140+.\n\n"
+            "face match, and AML hooks. Built on FastAPI 0.140+ + MongoDB.\n\n"
             "**Auth:** click **Authorize** in Swagger and set `X-Api-Key` "
             "(local default: `sk_test_liveness_dev`).\n\n"
             "**Docs:** Swagger UI `/docs` · ReDoc `/redoc` · OpenAPI `/openapi.json`"

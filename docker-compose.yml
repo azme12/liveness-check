@@ -1,4 +1,21 @@
 services:
+  mongo:
+    image: mongo:7
+    container_name: liveness-mongo
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_DATABASE: liveness
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   api:
     build: .
     image: liveness-api:0.1.0
@@ -8,39 +25,43 @@ services:
     environment:
       LIVENESS_API_KEY: ${LIVENESS_API_KEY:-sk_test_liveness_dev}
       LIVENESS_DEBUG: ${LIVENESS_DEBUG:-false}
-      LIVENESS_DATABASE_URL: sqlite+aiosqlite:////app/data/liveness.db
+      LIVENESS_MONGODB_URL: mongodb://mongo:27017
+      LIVENESS_MONGODB_DB: liveness
       LIVENESS_STORAGE_DIR: /app/storage
       LIVENESS_MODELS_DIR: /app/models
       LIVENESS_FACE_MATCH_THRESHOLD: "0.45"
       LIVENESS_LIVENESS_THRESHOLD: "0.5"
       LIVENESS_ALLOW_HEURISTIC_FALLBACK: "true"
     volumes:
-      - liveness-data:/app/data
       - liveness-storage:/app/storage
       - liveness-models:/app/models
+    depends_on:
+      mongo:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 25s
 
-  # Browser UI to view SQLite tables (Docker-only, no local files)
-  db-ui:
-    image: coleifer/sqlite-web:latest
-    container_name: liveness-db-ui
+  # Browse MongoDB collections in the browser
+  mongo-express:
+    image: mongo-express:1.0.2-20
+    container_name: liveness-mongo-ui
     ports:
-      - "8080:8080"
-    command: ["sqlite_web", "-H", "0.0.0.0", "-p", "8080", "/data/liveness.db"]
-    volumes:
-      - liveness-data:/data
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH: "false"
     depends_on:
-      api:
+      mongo:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  liveness-data:
+  mongo-data:
   liveness-storage:
   liveness-models:

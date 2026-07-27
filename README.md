@@ -131,7 +131,7 @@ Dockerfile
 | API | `fastapi>=0.140.0` |
 | Validation | `pydantic>=2.11` |
 | Server | `uvicorn` |
-| DB | SQLAlchemy 2 + aiosqlite (Postgres via `asyncpg` later) |
+| DB | MongoDB 7 (Motor) + mongo-express |
 | Vision | OpenCV, Pillow, NumPy |
 | Face (optional) | InsightFace `buffalo_l` |
 | Liveness (optional) | MiniFAS ONNX via onnxruntime |
@@ -140,14 +140,14 @@ Dockerfile
 
 ---
 
-## Docker (all data inside Docker volumes)
+## Docker (MongoDB + API)
 
 ```bash
 docker compose up --build -d
 
-# Swagger UI  → http://127.0.0.1:8000/docs
-# Health      → http://127.0.0.1:8000/health
-# DB tables   → http://127.0.0.1:8080   (sqlite-web)
+# Swagger UI     → http://127.0.0.1:8000/docs
+# Health         → http://127.0.0.1:8000/health
+# Mongo Express  → http://127.0.0.1:8081   (browse collections)
 ```
 
 ```bash
@@ -157,22 +157,27 @@ docker compose down
 
 API key (default): `sk_test_liveness_dev` — override with `LIVENESS_API_KEY`.
 
-SQLite lives in Docker volume `liveness-data` at `/app/data/liveness.db` (not on your host project folder).
+Data lives in Docker volume `mongo-data` (MongoDB). Uploaded images live in `liveness-storage`.
 
-### View tables (Docker)
+### Why MongoDB (not SQLite)
 
-**Browser:** http://127.0.0.1:8080
+| | SQLite | MongoDB |
+|--|--------|---------|
+| Setup | Single file, zero services | Needs a container |
+| Check `result` JSON | Awkward (TEXT/JSON column) | Natural document store |
+| Scale / multi-instance | Weak | Strong |
+| Browse UI | sqlite-web | mongo-express / Compass |
 
-**CLI:**
+SQLite was fine for a first prototype. KYC checks store nested OCR/biometric results — **MongoDB fits better**, and Docker already runs your stack.
 
-```bash
-docker exec -it liveness-api python -c "
-import sqlite3
-c = sqlite3.connect('/app/data/liveness.db')
-print(c.execute(\"SELECT name FROM sqlite_master WHERE type='table'\").fetchall())
-print(c.execute('SELECT * FROM clients').fetchall())
-"
+### Mongo connection (host tools)
+
+```text
+mongodb://127.0.0.1:27018
+database: liveness
 ```
+
+Beekeeper / Compass: Connection type **MongoDB** → `mongodb://127.0.0.1:27018`
 
 ---
 
