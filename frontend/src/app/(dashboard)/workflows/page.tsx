@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Copy, Filter, Plus, RefreshCw } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Badge, Panel, ToolbarSearch } from "@/components/AppShell";
@@ -18,6 +18,7 @@ type Workflow = {
 };
 
 export default function WorkflowsPage() {
+  const router = useRouter();
   const { env } = useEnvironment();
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -47,7 +48,7 @@ export default function WorkflowsPage() {
     setSaving(true);
     setError("");
     try {
-      await api("/api/workflows", {
+      const created = await api<Workflow>("/api/workflows", {
         method: "POST",
         body: JSON.stringify({
           name: name.trim(),
@@ -58,7 +59,7 @@ export default function WorkflowsPage() {
       setOpen(false);
       setName("");
       setDescription("");
-      load();
+      router.push(`/workflows/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create workflow");
     } finally {
@@ -107,15 +108,31 @@ export default function WorkflowsPage() {
           </thead>
           <tbody>
             {(data?.items || []).map((w) => (
-              <tr key={w.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]">
+              <tr
+                key={w.id}
+                role="link"
+                tabIndex={0}
+                onClick={() => router.push(`/workflows/${w.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    router.push(`/workflows/${w.id}`);
+                  }
+                }}
+                className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]"
+              >
                 <td className="px-4 py-3">
-                  <Link href={`/workflows/${w.id}`} className="font-medium text-white hover:text-[var(--accent)]">
+                  <span className="font-medium text-[var(--accent)] underline-offset-2 hover:underline">
                     {w.name}
-                  </Link>
+                  </span>
                   <div className="mt-1 flex items-center gap-1 font-mono text-xs text-[var(--muted)]">
                     ID: {w.id}
                     <button
-                      onClick={() => navigator.clipboard.writeText(w.id)}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(w.id);
+                      }}
                       className="hover:text-white"
                       title="Copy ID"
                     >
