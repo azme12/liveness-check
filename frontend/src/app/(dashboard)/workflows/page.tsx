@@ -110,29 +110,20 @@ export default function WorkflowsPage() {
             {(data?.items || []).map((w) => (
               <tr
                 key={w.id}
-                role="link"
-                tabIndex={0}
-                onClick={() => router.push(`/workflows/${w.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    router.push(`/workflows/${w.id}`);
-                  }
-                }}
-                className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]"
+                className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]"
               >
                 <td className="px-4 py-3">
-                  <span className="font-medium text-[var(--accent)] underline-offset-2 hover:underline">
+                  <a
+                    href={`/workflows/${w.id}`}
+                    className="block font-medium text-[var(--accent)] underline underline-offset-2 hover:text-white"
+                  >
                     {w.name}
-                  </span>
+                  </a>
                   <div className="mt-1 flex items-center gap-1 font-mono text-xs text-[var(--muted)]">
                     ID: {w.id}
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigator.clipboard.writeText(w.id);
-                      }}
+                      onClick={() => navigator.clipboard.writeText(w.id)}
                       className="hover:text-white"
                       title="Copy ID"
                     >
@@ -140,15 +131,25 @@ export default function WorkflowsPage() {
                     </button>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-[var(--muted)]">{w.description || "—"}</td>
                 <td className="px-4 py-3">
-                  {w.status === "active" ? (
-                    <Badge tone="success">Active</Badge>
-                  ) : (
-                    <Badge>Inactive</Badge>
-                  )}
+                  <a href={`/workflows/${w.id}`} className="block text-[var(--muted)] hover:text-white">
+                    {w.description || "—"}
+                  </a>
                 </td>
-                <td className="px-4 py-3 text-[var(--muted)]">{formatDate(w.updated_at)}</td>
+                <td className="px-4 py-3">
+                  <a href={`/workflows/${w.id}`} className="inline-block">
+                    {w.status === "active" ? (
+                      <Badge tone="success">Active</Badge>
+                    ) : (
+                      <Badge>Inactive</Badge>
+                    )}
+                  </a>
+                </td>
+                <td className="px-4 py-3">
+                  <a href={`/workflows/${w.id}`} className="block text-[var(--muted)] hover:text-white">
+                    {formatDate(w.updated_at)}
+                  </a>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { BarChart3, Copy, Pencil, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Panel } from "@/components/AppShell";
@@ -28,15 +28,23 @@ type Workflow = {
 
 export default function WorkflowDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const [wf, setWf] = useState<Workflow | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const load = useCallback(() => {
+    setError("");
     api<Workflow>(`/api/workflows/${params.id}`)
-      .then(setWf)
-      .catch(() => router.replace("/workflows"));
-  }, [params.id, router]);
+      .then((data) => {
+        setWf({
+          ...data,
+          versions: Array.isArray(data.versions) ? data.versions : [],
+        });
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load workflow");
+      });
+  }, [params.id]);
 
   useEffect(() => {
     load();
@@ -51,11 +59,22 @@ export default function WorkflowDetailPage() {
         method: "POST",
         body: JSON.stringify({ from_version_id: active?.id }),
       });
-      router.push(`/workflows/${wf.id}/versions/${created.id}`);
+      window.location.href = `/workflows/${wf.id}/versions/${created.id}`;
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to create version");
       setBusy(false);
     }
+  }
+
+  if (error && !wf) {
+    return (
+      <div className="space-y-3">
+        <p className="text-[var(--danger)]">{error}</p>
+        <a href="/workflows" className="text-sm text-[var(--accent)] underline">
+          ← Back to workflows
+        </a>
+      </div>
+    );
   }
 
   if (!wf) {
@@ -118,33 +137,41 @@ export default function WorkflowDetailPage() {
           </thead>
           <tbody>
             {(wf.versions || []).map((v) => (
-              <tr
-                key={v.id}
-                className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]"
-                onClick={() => router.push(`/workflows/${wf.id}/versions/${v.id}`)}
-              >
-                <td className="px-4 py-3 font-medium">{v.version}</td>
-                <td className="px-4 py-3">
-                  <div className="text-white">{v.description || "—"}</div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {(v.steps || []).map((s) => (
-                      <span
-                        key={`${v.id}-${s.type}`}
-                        className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] text-[var(--accent)]"
-                      >
-                        {s.label}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="mt-1 font-mono text-[11px] text-[var(--muted)]">ID: {v.id}</div>
+              <tr key={v.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]">
+                <td className="px-4 py-3 font-medium">
+                  <a href={`/workflows/${wf.id}/versions/${v.id}`} className="block text-[var(--accent)] underline">
+                    {v.version}
+                  </a>
                 </td>
-                <td className="px-4 py-3 text-[var(--muted)]">{formatDate(v.updated_at)}</td>
                 <td className="px-4 py-3">
-                  {v.status === "active" ? (
-                    <Badge tone="success">Active</Badge>
-                  ) : (
-                    <Badge>Inactive</Badge>
-                  )}
+                  <a href={`/workflows/${wf.id}/versions/${v.id}`} className="block">
+                    <div className="text-white">{v.description || "—"}</div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(v.steps || []).map((s) => (
+                        <span
+                          key={`${v.id}-${s.type}`}
+                          className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] text-[var(--accent)]"
+                        >
+                          {s.label}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] text-[var(--muted)]">ID: {v.id}</div>
+                  </a>
+                </td>
+                <td className="px-4 py-3">
+                  <a href={`/workflows/${wf.id}/versions/${v.id}`} className="block text-[var(--muted)]">
+                    {formatDate(v.updated_at)}
+                  </a>
+                </td>
+                <td className="px-4 py-3">
+                  <a href={`/workflows/${wf.id}/versions/${v.id}`} className="inline-block">
+                    {v.status === "active" ? (
+                      <Badge tone="success">Active</Badge>
+                    ) : (
+                      <Badge>Inactive</Badge>
+                    )}
+                  </a>
                 </td>
               </tr>
             ))}

@@ -449,8 +449,14 @@ async def seed_if_empty() -> None:
 def serialize(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     if not doc:
         return None
-    out = {k: v for k, v in doc.items() if k != "_id"}
-    for key, value in list(out.items()):
+
+    def convert(value: Any) -> Any:
         if isinstance(value, datetime):
-            out[key] = value.isoformat()
-    return out
+            return value.isoformat()
+        if isinstance(value, list):
+            return [convert(v) for v in value]
+        if isinstance(value, dict):
+            return {k: convert(v) for k, v in value.items() if k != "_id"}
+        return value
+
+    return convert({k: v for k, v in doc.items() if k != "_id"})
