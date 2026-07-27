@@ -1,0 +1,99 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "liveness"
+version = "0.1.0"
+description = "Open-source identity verification & compliance platform — document OCR, liveness, face match, AML checks"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "Liveness Contributors" }]
+keywords = [
+  "kyc",
+  "aml",
+  "liveness",
+  "face-match",
+  "ocr",
+  "identity-verification",
+  "biometrics",
+  "fastapi",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Framework :: FastAPI",
+]
+dependencies = [
+  "fastapi>=0.140.0",
+  "uvicorn[standard]>=0.35.0",
+  "pydantic>=2.11.0",
+  "pydantic-settings>=2.10.0",
+  "python-multipart>=0.0.20",
+  "httpx>=0.28.0",
+  "sqlalchemy>=2.0.40",
+  "aiosqlite>=0.21.0",
+  "greenlet>=3.2.0",
+  "numpy>=2.0.0",
+  "opencv-python-headless>=4.10.0,<5",
+  "pillow>=11.0.0",
+  "orjson>=3.10.0",
+]
+
+[project.optional-dependencies]
+bio = [
+  "onnxruntime>=1.22.0",
+  "insightface>=0.7.3",
+]
+doc = [
+  "paddleocr>=3.0.0",
+]
+aml = [
+  "httpx>=0.28.0",
+]
+all = [
+  "liveness[bio,doc,aml]",
+]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.26.0",
+  "ruff>=0.12.0",
+  "httpx>=0.28.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/liveness-hq/liveness"
+Documentation = "https://github.com/liveness-hq/liveness/tree/main/docs"
+Issues = "https://github.com/liveness-hq/liveness/issues"
+
+[project.scripts]
+liveness = "liveness.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/liveness"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/liveness" = "liveness"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/liveness", "README.md", "LICENSE", "docs"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

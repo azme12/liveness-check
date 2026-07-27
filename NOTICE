@@ -1,0 +1,14 @@
+# Third-Party Notices
+
+This project optionally integrates open-source models and libraries:
+
+| Component | Project | License |
+|-----------|---------|---------|
+| FastAPI | tiangolo/fastapi | MIT |
+| PaddleOCR | PaddlePaddle/PaddleOCR | Apache-2.0 |
+| InsightFace | deepinsight/insightface | MIT (models may require separate license) |
+| MiniFAS / Silent-Face-Anti-Spoofing | minivision-ai | Apache-2.0 |
+| OpenSanctions / yente | opensanctions | MIT (data license separate) |
+| OpenCV | opencv/opencv | Apache-2.0 |
+
+Check each project's license before commercial redistribution of model weights.
