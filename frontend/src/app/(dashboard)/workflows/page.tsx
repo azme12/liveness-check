@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Copy, Filter, Plus, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Badge, Panel, ToolbarSearch } from "@/components/AppShell";
 import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
@@ -22,6 +22,11 @@ export default function WorkflowsPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Paginated<Workflow> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const load = useCallback(() => {
     const params = new URLSearchParams({ page: String(page), page_size: "10", environment: env });
@@ -33,18 +38,39 @@ export default function WorkflowsPage() {
     load();
   }, [load]);
 
-  async function createWorkflow() {
-    const name = window.prompt("Workflow name", "New workflow");
-    if (!name) return;
-    await api("/api/workflows", {
-      method: "POST",
-      body: JSON.stringify({ name, description: "", steps: [{ type: "identity_check", label: "Identity Check" }] }),
-    });
-    load();
+  async function createWorkflow(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await api("/api/workflows", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim(),
+          steps: [{ type: "identity_check", label: "Identity Check" }],
+        }),
+      });
+      setOpen(false);
+      setName("");
+      setDescription("");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create workflow");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div>
+      <p className="mb-4 text-sm text-[var(--muted)]">
+        A workflow is a reusable set of verification steps that you apply when verifying clients.
+      </p>
       <ToolbarSearch
         value={q}
         onChange={(v) => {
@@ -61,7 +87,7 @@ export default function WorkflowsPage() {
               <Filter size={16} />
             </button>
             <button
-              onClick={createWorkflow}
+              onClick={() => setOpen(true)}
               className="inline-flex items-center gap-1 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white"
             >
               <Plus size={16} /> New workflow
@@ -87,7 +113,7 @@ export default function WorkflowsPage() {
                     {w.name}
                   </Link>
                   <div className="mt-1 flex items-center gap-1 font-mono text-xs text-[var(--muted)]">
-                    {w.id}
+                    ID: {w.id}
                     <button
                       onClick={() => navigator.clipboard.writeText(w.id)}
                       className="hover:text-white"
@@ -99,7 +125,11 @@ export default function WorkflowsPage() {
                 </td>
                 <td className="px-4 py-3 text-[var(--muted)]">{w.description || "—"}</td>
                 <td className="px-4 py-3">
-                  <Badge tone="success">{w.status === "active" ? "Active" : w.status}</Badge>
+                  {w.status === "active" ? (
+                    <Badge tone="success">Active</Badge>
+                  ) : (
+                    <Badge>Inactive</Badge>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-[var(--muted)]">{formatDate(w.updated_at)}</td>
               </tr>
@@ -115,6 +145,57 @@ export default function WorkflowsPage() {
           onPageSize={() => undefined}
         />
       </Panel>
+
+      {open ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+          <form
+            onSubmit={createWorkflow}
+            className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--bg-panel)] p-5"
+          >
+            <h2 className="mb-4 text-xl font-semibold">New workflow</h2>
+            <label className="mb-3 block text-sm">
+              <span className="text-[var(--muted)]">Name*</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 outline-none focus:border-[var(--accent)]"
+                placeholder="e.g. Full KYC"
+                required
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-[var(--muted)]">Description</span>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 outline-none focus:border-[var(--accent)]"
+                placeholder="What this workflow verifies…"
+              />
+            </label>
+            {error ? <p className="mt-3 text-sm text-[var(--danger)]">{error}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  setError("");
+                }}
+                className="rounded-lg border border-[var(--border)] px-4 py-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-[var(--success)] px-4 py-2 font-semibold text-black disabled:opacity-60"
+              >
+                {saving ? "Creating…" : "Create workflow"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }

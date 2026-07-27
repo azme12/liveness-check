@@ -28,8 +28,13 @@ class ClientCreate(BaseModel):
     type: Literal["person", "company"] = "person"
     first_name: str | None = None
     last_name: str | None = None
+    middle_name: str | None = None
     company_name: str | None = None
     email: EmailStr | None = None
+    mobile: str | None = None
+    nationality: str | None = None
+    date_of_birth: str | None = None
+    external_id: str | None = None
 
 
 class ClientBulkDelete(BaseModel):
@@ -54,7 +59,13 @@ class WorkflowCreate(BaseModel):
 class WorkflowUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    status: Literal["active", "draft", "archived"] | None = None
+    status: Literal["active", "inactive", "draft", "archived"] | None = None
+    steps: list[dict[str, Any]] | None = None
+
+
+class WorkflowVersionUpdate(BaseModel):
+    description: str | None = None
+    status: Literal["active", "inactive"] | None = None
     steps: list[dict[str, Any]] | None = None
 
 

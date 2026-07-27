@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Filter, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Panel, ToolbarSearch } from "@/components/AppShell";
@@ -18,6 +20,7 @@ type Client = {
 };
 
 export default function ClientsPage() {
+  const router = useRouter();
   const { env } = useEnvironment();
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -27,7 +30,9 @@ export default function ClientsPage() {
   const [type, setType] = useState<"person" | "company">("person");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
+  const [mobile, setMobile] = useState("");
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -113,20 +118,24 @@ export default function ClientsPage() {
     e.preventDefault();
     setError("");
     try {
-      await api("/api/clients", {
+      const created = await api<Client>("/api/clients", {
         method: "POST",
         body: JSON.stringify({
           type,
-          first_name: firstName,
-          last_name: lastName,
+          first_name: type === "person" ? firstName : null,
+          last_name: type === "person" ? lastName : null,
+          company_name: type === "company" ? companyName : null,
           email: email || null,
+          mobile: mobile || null,
         }),
       });
       setOpen(false);
       setFirstName("");
       setLastName("");
+      setCompanyName("");
       setEmail("");
-      load();
+      setMobile("");
+      router.push(`/clients/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     }
@@ -134,6 +143,10 @@ export default function ClientsPage() {
 
   return (
     <div>
+      <p className="mb-4 text-sm text-[var(--muted)]">
+        A client is a customer or applicant, either a person or company, on whom you can perform checks or run through a
+        verification flow.
+      </p>
       <ToolbarSearch
         value={q}
         onChange={(v) => {
@@ -213,12 +226,12 @@ export default function ClientsPage() {
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <Link href={`/clients/${c.id}`} className="flex items-center gap-2 hover:text-[var(--accent)]">
                         <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--bg-hover)] text-xs">
                           {c.name.slice(0, 1)}
                         </span>
-                        {c.name}
-                      </div>
+                        <span className="font-medium">{c.name}</span>
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">{c.email || "—"}</td>
                     <td className="px-4 py-3">
@@ -271,11 +284,21 @@ export default function ClientsPage() {
                 COMPANY
               </label>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="First Name*" value={firstName} onChange={setFirstName} placeholder="e.g. John" required />
-              <Field label="Last Name*" value={lastName} onChange={setLastName} placeholder="e.g. Doe" required />
-            </div>
-            <div className="mt-3">
+            {type === "person" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="First Name*" value={firstName} onChange={setFirstName} placeholder="e.g. John" required />
+                <Field label="Last Name*" value={lastName} onChange={setLastName} placeholder="e.g. Doe" required />
+              </div>
+            ) : (
+              <Field
+                label="Company Name*"
+                value={companyName}
+                onChange={setCompanyName}
+                placeholder="e.g. Acme Ltd"
+                required
+              />
+            )}
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Field
                 label="Email Address*"
                 value={email}
@@ -284,6 +307,7 @@ export default function ClientsPage() {
                 type="email"
                 required
               />
+              <Field label="Mobile" value={mobile} onChange={setMobile} placeholder="e.g. +2519…" />
             </div>
             {error ? <p className="mt-3 text-sm text-[var(--danger)]">{error}</p> : null}
             <div className="mt-5 flex justify-end gap-2">
