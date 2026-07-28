@@ -55,10 +55,17 @@ export function NotificationsMenu() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
+  // Unread badge: fetch once, lightly — do not refetch on every page navigation.
   useEffect(() => {
+    let cancelled = false;
     api<NotificationsResponse>("/api/auth/notifications?page=1&page_size=1")
-      .then(setData)
+      .then((res) => {
+        if (!cancelled) setData(res);
+      })
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function markRead(id: string) {

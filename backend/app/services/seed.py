@@ -19,7 +19,7 @@ def utcnow() -> datetime:
 
 
 async def ensure_user_account_defaults(user: dict[str, Any]) -> dict[str, Any]:
-    """Backfill profile fields + a single welcome notification for new users."""
+    """Backfill profile fields lightly. Avoids extra DB work on every /me."""
     db = get_database()
     patch: dict[str, Any] = {}
     if not user.get("first_name") and user.get("full_name"):
@@ -34,40 +34,48 @@ async def ensure_user_account_defaults(user: dict[str, Any]) -> dict[str, Any]:
         await db.users.update_one({"id": user["id"]}, {"$set": patch})
         user = {**user, **patch}
 
-    count = await db.notifications.count_documents({"user_id": user["id"]})
-    if count == 0:
-        now = utcnow()
-        await db.notifications.insert_one(
-            {
-                "id": new_id("ntf_"),
-                "user_id": user["id"],
-                "type": "system",
-                "title": "Welcome to Trustanova",
-                "body": "Your workspace is ready. Add a client or create a workflow to get started.",
-                "read": False,
-                "created_at": now,
-            }
-        )
+    # Only check notifications once — after welcome is written, set a flag on the user.
+    if not user.get("welcome_notification_sent"):
+        existing = await db.notifications.find_one({"user_id": user["id"]}, {"_id": 1})
+        if not existing:
+            now = utcnow()
+            await db.notifications.insert_one(
+                {
+                    "id": new_id("ntf_"),
+                    "user_id": user["id"],
+                    "type": "system",
+                    "title": "Welcome to Trustanova",
+                    "body": "Your workspace is ready. Add a client or create a workflow to get started.",
+                    "read": False,
+                    "created_at": now,
+                }
+            )
+        await db.users.update_one({"id": user["id"]}, {"$set": {"welcome_notification_sent": True}})
+        user = {**user, "welcome_notification_sent": True}
     return user
 
 
 async def ensure_org_defaults(org_id: str) -> None:
-    """Backfill org flags and environment tags only — never invent demo clients/workflows."""
+    """Backfill org flags only. Skips after first successful backfill."""
     db = get_database()
     org = await db.organizations.find_one({"id": org_id})
-    if org:
-        patch: dict = {}
-        if "live_enabled" not in org:
-            patch["live_enabled"] = False
-        if "activation" not in org:
-            patch["activation"] = {"step": 1, "completed": False}
-        if patch:
-            await db.organizations.update_one({"id": org_id}, {"$set": patch})
-    for coll in ("clients", "sessions", "checks", "workflows", "webhooks", "events", "api_logs", "allowed_ips"):
-        await db[coll].update_many(
-            {"org_id": org_id, "environment": {"$exists": False}},
-            {"$set": {"environment": "live"}},
-        )
+    if not org:
+        return
+    patch: dict = {}
+    if "live_enabled" not in org:
+        patch["live_enabled"] = False
+    if "activation" not in org:
+        patch["activation"] = {"step": 1, "completed": False}
+    # One-time env tag backfill for legacy docs (avoid 8x update_many on every /me).
+    if not org.get("env_backfilled"):
+        for coll in ("clients", "sessions", "checks", "workflows", "webhooks", "events", "api_logs", "allowed_ips"):
+            await db[coll].update_many(
+                {"org_id": org_id, "environment": {"$exists": False}},
+                {"$set": {"environment": "live"}},
+            )
+        patch["env_backfilled"] = True
+    if patch:
+        await db.organizations.update_one({"id": org_id}, {"$set": patch})
 
 
 # Backwards-compatible alias (old imports)

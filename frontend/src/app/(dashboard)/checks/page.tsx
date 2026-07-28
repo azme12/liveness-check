@@ -7,6 +7,7 @@ import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
 import { formatDate } from "@/lib/format";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 type Check = {
   id: string;
@@ -21,6 +22,7 @@ type Check = {
 export default function ChecksPage() {
   const { env } = useEnvironment();
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 350);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [data, setData] = useState<Paginated<Check> | null>(null);
@@ -31,9 +33,9 @@ export default function ChecksPage() {
       page_size: String(pageSize),
       environment: env,
     });
-    if (q.trim().length >= 3) params.set("q", q.trim());
+    if (debouncedQ.trim().length >= 3) params.set("q", debouncedQ.trim());
     api<Paginated<Check>>(`/api/checks?${params}`).then(setData).catch(console.error);
-  }, [page, pageSize, q, env]);
+  }, [page, pageSize, debouncedQ, env]);
 
   useEffect(() => {
     load();

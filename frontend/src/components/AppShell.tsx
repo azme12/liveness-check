@@ -55,7 +55,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [orgName, setOrgName] = useState("Trustanova Org");
   const [userName, setUserName] = useState("User");
   const [userEmail, setUserEmail] = useState("");
-  const [ready, setReady] = useState(false);
   const [liveTip, setLiveTip] = useState(false);
   const showIntegrationSidebar = pathname.startsWith("/integration");
 
@@ -68,12 +67,45 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
     setUserName(user.full_name || "User");
     setUserEmail(user.email || "");
+
+    const cacheKey = "trustanova_me_cache";
+    const cachedRaw = sessionStorage.getItem(cacheKey);
+    if (cachedRaw) {
+      try {
+        const cached = JSON.parse(cachedRaw) as {
+          at: number;
+          data: {
+            organization?: { name?: string; live_enabled?: boolean };
+            live_enabled?: boolean;
+            user?: { full_name?: string; email?: string; first_name?: string; theme?: string };
+          };
+        };
+        if (Date.now() - cached.at < 60_000) {
+          const data = cached.data;
+          if (data.organization?.name) setOrgName(data.organization.name);
+          if (data.user?.full_name) setUserName(data.user.full_name);
+          else if (data.user?.first_name) setUserName(data.user.first_name);
+          if (data.user?.email) setUserEmail(data.user.email);
+          const enabled = Boolean(data.live_enabled ?? data.organization?.live_enabled);
+          setLiveEnabled(enabled);
+          if (!enabled) setEnv("test");
+          if (data.user?.theme && ["light", "dark", "system"].includes(data.user.theme)) {
+            hydrateTheme(data.user.theme as "light" | "dark" | "system");
+          }
+          return;
+        }
+      } catch {
+        /* ignore bad cache */
+      }
+    }
+
     api<{
       organization?: { name?: string; live_enabled?: boolean };
       live_enabled?: boolean;
       user?: { full_name?: string; email?: string; first_name?: string; theme?: string };
     }>("/api/auth/me")
       .then((data) => {
+        sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data }));
         if (data.organization?.name) setOrgName(data.organization.name);
         if (data.user?.full_name) setUserName(data.user.full_name);
         else if (data.user?.first_name) setUserName(data.user.first_name);
@@ -85,21 +117,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           hydrateTheme(data.user.theme as "light" | "dark" | "system");
         }
       })
-      .catch(() => undefined)
-      .finally(() => setReady(true));
+      .catch(() => undefined);
   }, [router, hydrateTheme, setLiveEnabled, setEnv]);
 
   const activeNav = useMemo(() => {
     return NAV.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`))?.href;
   }, [pathname]);
-
-  if (!ready) {
-    return (
-      <div className="min-h-screen grid place-items-center text-[var(--muted)]">
-        Loading Trustanova…
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">

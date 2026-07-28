@@ -6,6 +6,7 @@ import { Panel, ToolbarSearch } from "@/components/AppShell";
 import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 type Session = {
   id: string;
@@ -17,6 +18,7 @@ type Session = {
 export default function SessionsPage() {
   const { env } = useEnvironment();
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 350);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [data, setData] = useState<Paginated<Session> | null>(null);
@@ -27,9 +29,9 @@ export default function SessionsPage() {
       page_size: String(pageSize),
       environment: env,
     });
-    if (q.trim().length >= 3) params.set("q", q.trim());
+    if (debouncedQ.trim().length >= 3) params.set("q", debouncedQ.trim());
     api<Paginated<Session>>(`/api/sessions?${params}`).then(setData).catch(console.error);
-  }, [page, pageSize, q, env]);
+  }, [page, pageSize, debouncedQ, env]);
 
   useEffect(() => {
     load();

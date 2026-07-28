@@ -9,6 +9,7 @@ import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
 import { cn, formatDate } from "@/lib/format";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 type Client = {
   id: string;
@@ -23,6 +24,7 @@ export default function ClientsPage() {
   const router = useRouter();
   const { env } = useEnvironment();
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 350);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [data, setData] = useState<Paginated<Client> | null>(null);
@@ -46,7 +48,7 @@ export default function ClientsPage() {
       page_size: String(pageSize),
       environment: env,
     });
-    if (q.trim().length >= 3) params.set("q", q.trim());
+    if (debouncedQ.trim().length >= 3) params.set("q", debouncedQ.trim());
     api<Paginated<Client>>(`/api/clients?${params}`)
       .then((res) => {
         setData(res);
@@ -56,7 +58,7 @@ export default function ClientsPage() {
         });
       })
       .catch(console.error);
-  }, [page, pageSize, q, env]);
+  }, [page, pageSize, debouncedQ, env]);
 
   useEffect(() => {
     load();

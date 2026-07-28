@@ -37,11 +37,21 @@ export function withEnvironment(path: string, env?: "test" | "live"): string {
 export function setSession(token: string, user: unknown) {
   localStorage.setItem("trustanova_token", token);
   localStorage.setItem("trustanova_user", JSON.stringify(user));
+  try {
+    sessionStorage.removeItem("trustanova_me_cache");
+  } catch {
+    /* ignore */
+  }
 }
 
 export function clearSession() {
   localStorage.removeItem("trustanova_token");
   localStorage.removeItem("trustanova_user");
+  try {
+    sessionStorage.removeItem("trustanova_me_cache");
+  } catch {
+    /* ignore */
+  }
 }
 
 export function getStoredUser<T = Record<string, unknown>>(): T | null {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 from datetime import datetime, timedelta, timezone
@@ -104,54 +105,94 @@ async def overview(
             q["created_at"] = {"$gte": now - timedelta(days=days)}
         return await db[coll].count_documents(q)
 
+    # Run flagged counters in parallel (was ~12 sequential awaits).
+    (
+        s_today,
+        s_d7,
+        s_d30,
+        s_d90,
+        s_all,
+        c_today,
+        c_d7,
+        c_d30,
+        c_d90,
+        c_all,
+        persons,
+        companies,
+    ) = await asyncio.gather(
+        count_since("sessions", 1),
+        count_since("sessions", 7),
+        count_since("sessions", 30),
+        count_since("sessions", 90),
+        count_since("sessions"),
+        count_since("checks", 1),
+        count_since("checks", 7),
+        count_since("checks", 30),
+        count_since("checks", 90),
+        count_since("checks"),
+        db.clients.count_documents({**base, "type": "person"}),
+        db.clients.count_documents({**base, "type": "company"}),
+    )
+
     flagged = {
         "sessions": {
-            "today": await count_since("sessions", 1),
-            "d7": await count_since("sessions", 7),
-            "d30": await count_since("sessions", 30),
-            "d90": await count_since("sessions", 90),
-            "over90": max(0, await count_since("sessions") - await count_since("sessions", 90)),
+            "today": s_today,
+            "d7": s_d7,
+            "d30": s_d30,
+            "d90": s_d90,
+            "over90": max(0, s_all - s_d90),
         },
         "checks": {
-            "today": await count_since("checks", 1),
-            "d7": await count_since("checks", 7),
-            "d30": await count_since("checks", 30),
-            "d90": await count_since("checks", 90),
-            "over90": max(0, await count_since("checks") - await count_since("checks", 90)),
+            "today": c_today,
+            "d7": c_d7,
+            "d30": c_d30,
+            "d90": c_d90,
+            "over90": max(0, c_all - c_d90),
         },
     }
 
-    # 12-month usage series
-    usage = []
+    # 12-month usage — parallelize each month's 3 counts
+    month_ranges: list[tuple[datetime, datetime, str]] = []
     for i in range(11, -1, -1):
-        start = (now.replace(day=1) - timedelta(days=30 * i)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start = (now.replace(day=1) - timedelta(days=30 * i)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
         if i == 0:
             end = now
         else:
             end = (start + timedelta(days=32)).replace(day=1)
-        identity = await db.checks.count_documents(
-            {**base, "type": "identity_check", "created_at": {"$gte": start, "$lt": end}}
-        )
-        document = await db.checks.count_documents(
-            {**base, "type": "document_check", "created_at": {"$gte": start, "$lt": end}}
-        )
-        aml = await db.checks.count_documents(
-            {**base, "type": "standard_screening_check", "created_at": {"$gte": start, "$lt": end}}
-        )
-        usage.append(
-            {
-                "month": start.strftime("%b"),
-                "identity_check": identity,
-                "document_check": document,
-                "extensive_aml": aml,
-            }
-        )
+        month_ranges.append((start, end, start.strftime("%b")))
 
-    persons = await db.clients.count_documents({**base, "type": "person"})
-    companies = await db.clients.count_documents({**base, "type": "company"})
+    async def month_counts(start: datetime, end: datetime, label: str) -> dict:
+        identity, document, aml = await asyncio.gather(
+            db.checks.count_documents(
+                {**base, "type": "identity_check", "created_at": {"$gte": start, "$lt": end}}
+            ),
+            db.checks.count_documents(
+                {**base, "type": "document_check", "created_at": {"$gte": start, "$lt": end}}
+            ),
+            db.checks.count_documents(
+                {
+                    **base,
+                    "type": "standard_screening_check",
+                    "created_at": {"$gte": start, "$lt": end},
+                }
+            ),
+        )
+        return {
+            "month": label,
+            "identity_check": identity,
+            "document_check": document,
+            "extensive_aml": aml,
+        }
+
+    usage = await asyncio.gather(
+        *[month_counts(start, end, label) for start, end, label in month_ranges]
+    )
+
     return {
         "flagged": flagged,
-        "usage": usage,
+        "usage": list(usage),
         "population": {"total": persons + companies, "persons": persons, "companies": companies},
         "environment": environment,
     }

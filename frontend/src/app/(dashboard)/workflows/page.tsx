@@ -9,6 +9,7 @@ import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
 import { formatDate } from "@/lib/format";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 type Workflow = {
   id: string;
@@ -22,6 +23,7 @@ export default function WorkflowsPage() {
   const router = useRouter();
   const { env } = useEnvironment();
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 350);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Paginated<Workflow> | null>(null);
   const [open, setOpen] = useState(false);
@@ -32,9 +34,9 @@ export default function WorkflowsPage() {
 
   const load = useCallback(() => {
     const params = new URLSearchParams({ page: String(page), page_size: "10", environment: env });
-    if (q.trim().length >= 3) params.set("q", q.trim());
+    if (debouncedQ.trim().length >= 3) params.set("q", debouncedQ.trim());
     api<Paginated<Workflow>>(`/api/workflows?${params}`).then(setData).catch(console.error);
-  }, [page, q, env]);
+  }, [page, debouncedQ, env]);
 
   useEffect(() => {
     load();
