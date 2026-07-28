@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     verification_api_url: str = "http://127.0.0.1:8000"
     verification_api_key: str = "sk_test_liveness_dev"
+    # When true, empty DB gets demo admin + sample data (local only). Production: leave false.
+    seed_demo: bool = False
 
     @property
     def origins(self) -> list[str]:

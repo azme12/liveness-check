@@ -460,7 +460,7 @@ function DocumentsTab({ data }: { data: Paginated<DocumentRow> | null }) {
 function EmptyState({ label }: { label: string }) {
   return (
     <div className="py-12 text-center text-sm text-[var(--muted)]">
-      {label.replaceAll("_", " ")} — coming soon for this demo.
+      {label.replaceAll("_", " ")} — not configured yet.
     </div>
   );
 }

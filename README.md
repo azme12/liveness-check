@@ -31,8 +31,8 @@ npm run dev
 
 - **UI:** http://127.0.0.1:3000  
 - **API docs:** http://127.0.0.1:8100/docs  
-- **Demo login:** `admin@trustanova.dev` / `admin123`  
-- **Checks API key:** `sk_test_liveness_dev` (`X-Api-Key`)
+- **Create account:** open `/signup` (stored in MongoDB)  
+- Optional local demo: set `LIVENCUBE_SEED_DEMO=true` then restart backend (`admin@trustanova.dev` / `admin123`)
 
 ## Docker (all)
 
@@ -81,7 +81,7 @@ LIVENESS_MONGODB_DB=liveness
 |------|--------|
 | `NEXT_PUBLIC_API_URL` | `https://liveness-api.onrender.com` (your Render URL, no trailing slash) |
 
-4. Deploy. Login: `admin@trustanova.dev` / `admin123`.
+4. Deploy. Login: create an account via **Sign up** (data is stored in MongoDB Atlas).
 
 ## Layout
 

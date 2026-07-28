@@ -10,6 +10,7 @@ from app.schemas import (
     ActivationBusinessDetails,
     ActivationIdentity,
     ActivationUsage,
+    ChangePasswordRequest,
     LoginRequest,
     NotificationPrefsUpdate,
     ProfileUpdate,
@@ -17,7 +18,7 @@ from app.schemas import (
     TokenResponse,
 )
 from app.security import create_access_token, hash_password, verify_password
-from app.services.seed import ensure_user_account_defaults, ensure_workspace_demo, new_id, serialize, utcnow
+from app.services.seed import ensure_org_defaults, ensure_user_account_defaults, new_id, serialize, utcnow
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -65,6 +66,10 @@ async def signup(body: SignupRequest):
         "created_at": now,
     }
     await db.users.insert_one(user)
+    # Create empty sandbox/live API keys for the new org (stored in Mongo).
+    from app.routers.integration import ensure_org_keys
+
+    await ensure_org_keys(org_id)
     token = create_access_token(user_id, {"org_id": org_id})
     safe = serialize({k: v for k, v in user.items() if k != "password_hash"})
     return TokenResponse(access_token=token, user=safe or {})
@@ -81,11 +86,24 @@ async def login(body: LoginRequest):
     return TokenResponse(access_token=token, user=safe or {})
 
 
+@router.post("/change-password")
+async def change_password(body: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    db = get_database()
+    doc = await db.users.find_one({"id": user["id"]})
+    if not doc or not verify_password(body.current_password, doc["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_password(body.new_password), "updated_at": utcnow()}},
+    )
+    return {"ok": True}
+
+
 @router.get("/me")
 async def me(user: dict = Depends(get_current_user)):
     db = get_database()
     user = await ensure_user_account_defaults(user)
-    await ensure_workspace_demo(user["org_id"])
+    await ensure_org_defaults(user["org_id"])
     org = await db.organizations.find_one({"id": user["org_id"]}, {"_id": 0})
     safe = serialize({k: v for k, v in user.items() if k not in {"password_hash", "_id"}})
     org_safe = serialize(org) or {}

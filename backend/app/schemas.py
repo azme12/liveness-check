@@ -10,12 +10,17 @@ class SignupRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
-    organization_name: str = Field(default="My Organization", min_length=2, max_length=120)
+    organization_name: str = Field(min_length=2, max_length=120)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class TokenResponse(BaseModel):

@@ -9,7 +9,7 @@ from pymongo import ReturnDocument
 
 from app.db import get_database
 from app.deps import get_current_user
-from app.schemas import ClientBulkDelete, ClientCreate, WorkflowVersionUpdate
+from app.schemas import ClientBulkDelete, ClientCreate, WorkflowCreate, WorkflowVersionUpdate
 from app.services.environment import environment_query, with_org_env
 from app.services.seed import new_id, serialize, utcnow
 from app.services.webhooks import (
@@ -635,16 +635,16 @@ async def list_workflows(
 
 @router.post("/workflows")
 async def create_workflow(
-    body: dict,
+    body: WorkflowCreate,
     user: dict = Depends(get_current_user),
     environment: str = Depends(environment_query),
 ):
     db = get_database()
     now = utcnow()
-    steps = body.get("steps") or [{"type": "identity_check", "label": "Identity Check"}]
+    steps = body.steps or [{"type": "identity_check", "label": "Identity Check"}]
     version = _make_version(
         version=1,
-        description=body.get("description") or "",
+        description=body.description or "",
         status="active",
         steps=steps,
         now=now,
@@ -653,8 +653,8 @@ async def create_workflow(
         "id": new_id("wf_"),
         "org_id": user["org_id"],
         "environment": environment,
-        "name": body.get("name") or "Untitled workflow",
-        "description": body.get("description") or "",
+        "name": body.name.strip() or "Untitled workflow",
+        "description": body.description or "",
         "status": "active",
         "version": 1,
         "steps": steps,

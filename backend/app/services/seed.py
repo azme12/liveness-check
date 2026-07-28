@@ -19,7 +19,7 @@ def utcnow() -> datetime:
 
 
 async def ensure_user_account_defaults(user: dict[str, Any]) -> dict[str, Any]:
-    """Backfill profile fields + welcome notifications for existing users."""
+    """Backfill profile fields + a single welcome notification for new users."""
     db = get_database()
     patch: dict[str, Any] = {}
     if not user.get("first_name") and user.get("full_name"):
@@ -37,38 +37,23 @@ async def ensure_user_account_defaults(user: dict[str, Any]) -> dict[str, Any]:
     count = await db.notifications.count_documents({"user_id": user["id"]})
     if count == 0:
         now = utcnow()
-        await db.notifications.insert_many(
-            [
-                {
-                    "id": new_id("ntf_"),
-                    "user_id": user["id"],
-                    "type": "system",
-                    "title": "Welcome to Trustanova",
-                    "body": "Your workspace is ready. Start by adding a client or creating a workflow.",
-                    "read": False,
-                    "created_at": now,
-                },
-                {
-                    "id": new_id("ntf_"),
-                    "user_id": user["id"],
-                    "type": "check",
-                    "title": "Identity check completed",
-                    "body": "A sample identity check finished with Clear outcome.",
-                    "read": False,
-                    "created_at": now,
-                },
-            ]
+        await db.notifications.insert_one(
+            {
+                "id": new_id("ntf_"),
+                "user_id": user["id"],
+                "type": "system",
+                "title": "Welcome to Trustanova",
+                "body": "Your workspace is ready. Add a client or create a workflow to get started.",
+                "read": False,
+                "created_at": now,
+            }
         )
     return user
 
 
-async def ensure_workspace_demo(org_id: str) -> None:
-    """Rename legacy demo org, backfill env tags, seed TEST clients if missing."""
+async def ensure_org_defaults(org_id: str) -> None:
+    """Backfill org flags and environment tags only — never invent demo clients/workflows."""
     db = get_database()
-    await db.organizations.update_many(
-        {"name": {"$regex": "^StarPay", "$options": "i"}},
-        {"$set": {"name": "NileVerify Technologies"}},
-    )
     org = await db.organizations.find_one({"id": org_id})
     if org:
         patch: dict = {}
@@ -84,67 +69,10 @@ async def ensure_workspace_demo(org_id: str) -> None:
             {"$set": {"environment": "live"}},
         )
 
-    test_count = await db.clients.count_documents({"org_id": org_id, "environment": "test"})
-    if test_count == 0:
-        now = utcnow()
-        await db.clients.insert_many(
-            [
-                {
-                    "id": new_id("cli_"),
-                    "org_id": org_id,
-                    "environment": "test",
-                    "first_name": "Demo",
-                    "last_name": "Client One",
-                    "name": "Demo Client One",
-                    "email": "demo1@test.nileverify.dev",
-                    "type": "person",
-                    "risk": "low",
-                    "created_at": now,
-                },
-                {
-                    "id": new_id("cli_"),
-                    "org_id": org_id,
-                    "environment": "test",
-                    "first_name": "Demo",
-                    "last_name": "Client Two",
-                    "name": "Demo Client Two",
-                    "email": "demo2@test.nileverify.dev",
-                    "type": "person",
-                    "risk": "low",
-                    "created_at": now,
-                },
-                {
-                    "id": new_id("cli_"),
-                    "org_id": org_id,
-                    "environment": "test",
-                    "first_name": None,
-                    "last_name": None,
-                    "company_name": "Sandbox Co",
-                    "name": "Sandbox Co",
-                    "email": "sandbox@test.nileverify.dev",
-                    "type": "company",
-                    "risk": "low",
-                    "created_at": now,
-                },
-            ]
-        )
-    wf_test = await db.workflows.count_documents({"org_id": org_id, "environment": "test"})
-    if wf_test == 0:
-        now = utcnow()
-        await db.workflows.insert_one(
-            {
-                "id": new_id("wf_"),
-                "org_id": org_id,
-                "environment": "test",
-                "name": "Sandbox KYC",
-                "description": "test-only verification workflow",
-                "status": "active",
-                "version": 1,
-                "steps": [{"type": "identity_check", "label": "Identity Check"}],
-                "created_at": now,
-                "updated_at": now,
-            }
-        )
+
+# Backwards-compatible alias (old imports)
+async def ensure_workspace_demo(org_id: str) -> None:
+    await ensure_org_defaults(org_id)
 
 
 async def seed_if_empty() -> None:

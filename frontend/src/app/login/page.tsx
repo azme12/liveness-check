@@ -8,8 +8,8 @@ import { api, setSession } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@trustanova.dev");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -45,7 +45,7 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-semibold">Sign in to Trustanova</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Identity verification dashboard — Trustanova workflows.
+            Identity verification dashboard — sign in with your account.
           </p>
         </div>
         <label className="block text-sm mb-3">
@@ -55,6 +55,8 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             type="email"
+            autoComplete="email"
+            placeholder="you@company.com"
             required
           />
         </label>
@@ -91,9 +93,6 @@ export default function LoginPage() {
           <Link href="/signup" className="text-[var(--accent)] hover:underline">
             Sign up
           </Link>
-        </p>
-        <p className="mt-3 text-center text-xs text-[var(--muted)]">
-          Demo: admin@trustanova.dev / admin123
         </p>
       </form>
     </div>

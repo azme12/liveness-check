@@ -28,7 +28,7 @@ export default function SignupPage() {
           full_name: fullName,
           email,
           password,
-          organization_name: organization || "My Organization",
+          organization_name: organization,
         }),
       });
       setSession(data.access_token, data.user);
@@ -68,7 +68,8 @@ export default function SignupPage() {
             className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 outline-none focus:border-[var(--accent)]"
             value={organization}
             onChange={(e) => setOrganization(e.target.value)}
-            placeholder="StarPay Ethiopia Finance"
+            placeholder="Your company name"
+            required
           />
         </label>
         <label className="block text-sm mb-3">

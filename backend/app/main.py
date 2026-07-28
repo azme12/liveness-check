@@ -25,7 +25,8 @@ async def lifespan(_: FastAPI):
     lset.models_dir.mkdir(parents=True, exist_ok=True)
     await init_checks_db()
     await init_dashboard_db()
-    await seed_if_empty()
+    if get_settings().seed_demo:
+        await seed_if_empty()
     start_webhook_worker()
     yield
     stop_webhook_worker()
