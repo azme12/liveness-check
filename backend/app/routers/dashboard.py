@@ -5,7 +5,7 @@ import math
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pymongo import ReturnDocument
 
 from app.db import get_database
@@ -20,6 +20,8 @@ from app.services.webhooks import (
     emit_client_updated,
     emit_session_event,
 )
+from liveness.api.worker import process_check
+from liveness.storage import BlobStore
 
 router = APIRouter(tags=["dashboard"])
 
@@ -141,7 +143,7 @@ async def _create_session_checks(
     return checks
 
 
-async def _complete_checks_for_stage(
+async def _sync_session_checks(
     *,
     db,
     org_id: str,
@@ -152,29 +154,40 @@ async def _complete_checks_for_stage(
         "document": {"document_check"},
         "face": {"identity_check", "enhanced_identity_check", "age_estimation_check"},
         "screening": {"standard_screening_check", "extensive_screening_check"},
-        "complete": None,
     }
     types = stage_map.get(stage)
+    if not types:
+        return
     filt: dict = {
         "session_id": session["id"],
         "org_id": org_id,
         "environment": session["environment"],
-        "status": {"$ne": "complete"},
+        "type": {"$in": list(types)},
     }
-    if types is not None:
-        filt["type"] = {"$in": list(types)}
-    pending = await db.checks.find(filt, {"_id": 0}).to_list(100)
-    for doc in pending:
-        completed = {
-            **doc,
-            "status": "complete",
-            "outcome": "clear",
-            "updated_at": utcnow(),
-            "completed_at": utcnow(),
-        }
-        await db.checks.update_one({"id": doc["id"]}, {"$set": completed})
-        await emit_check_lifecycle(org_id, completed, "check.completed")
-        await emit_check_lifecycle(org_id, completed, "check.updated")
+    checks = await db.checks.find(filt, {"_id": 0}).to_list(100)
+    for doc in checks:
+        patch = {"status": "pending", "updated_at": utcnow()}
+        if stage == "document":
+            if not session.get("document_id"):
+                raise HTTPException(status_code=400, detail="Document upload is required")
+            patch["document_id"] = session["document_id"]
+        elif stage == "face":
+            if not session.get("document_id") or not session.get("live_photo_id"):
+                raise HTTPException(status_code=400, detail="Document and live photo are required")
+            patch["document_id"] = session["document_id"]
+            patch["live_photo_id"] = session["live_photo_id"]
+        elif stage == "screening":
+            patch["options"] = {"source": "hosted_verification"}
+        await db.checks.update_one({"id": doc["id"]}, {"$set": patch})
+        await process_check(doc["id"])
+
+
+def _next_stage(stages: list[str], stage: str) -> str:
+    try:
+        idx = stages.index(stage)
+        return stages[idx + 1] if idx + 1 < len(stages) else "complete"
+    except ValueError:
+        return "complete"
 
 
 @router.get("/overview")
@@ -702,6 +715,67 @@ async def get_verification_session(token: str):
     }
 
 
+@router.post("/verify/{token}/document")
+async def upload_verification_document(token: str, file: UploadFile = File(...)):
+    db = get_database()
+    session = await db.sessions.find_one({"share_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Verification session not found")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty document file")
+    doc_id = new_id("doc_")
+    key = f"documents/{doc_id}/{file.filename or 'document.jpg'}"
+    BlobStore().put(key, data)
+    document = {
+        "id": doc_id,
+        "org_id": session["org_id"],
+        "environment": session["environment"],
+        "client_id": session["client_id"],
+        "session_id": session["id"],
+        "storage_key": key,
+        "document_type": None,
+        "status": "uploaded",
+        "created_at": utcnow(),
+    }
+    await db.documents.insert_one(document)
+    await db.sessions.update_one(
+        {"id": session["id"]},
+        {"$set": {"document_id": doc_id, "updated_at": utcnow()}},
+    )
+    return serialize(document)
+
+
+@router.post("/verify/{token}/live-photo")
+async def upload_verification_live_photo(token: str, file: UploadFile = File(...)):
+    db = get_database()
+    session = await db.sessions.find_one({"share_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Verification session not found")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty live photo file")
+    photo_id = new_id("pho_")
+    key = f"live_photos/{photo_id}/{file.filename or 'selfie.jpg'}"
+    BlobStore().put(key, data)
+    photo = {
+        "id": photo_id,
+        "org_id": session["org_id"],
+        "environment": session["environment"],
+        "client_id": session["client_id"],
+        "session_id": session["id"],
+        "storage_key": key,
+        "status": "uploaded",
+        "created_at": utcnow(),
+    }
+    await db.live_photos.insert_one(photo)
+    await db.sessions.update_one(
+        {"id": session["id"]},
+        {"$set": {"live_photo_id": photo_id, "updated_at": utcnow()}},
+    )
+    return serialize(photo)
+
+
 @router.post("/verify/{token}/progress")
 async def progress_verification_session(token: str, body: dict):
     db = get_database()
@@ -717,40 +791,21 @@ async def progress_verification_session(token: str, body: dict):
     patch = {"updated_at": utcnow()}
     if stage == "consent":
         patch["status"] = "in_progress"
-        patch["current_stage"] = "document" if "document" in (session.get("stages") or []) else "face"
+        patch["current_stage"] = _next_stage(session.get("stages") or ["consent", "complete"], "consent")
     elif stage in {"document", "face", "screening"}:
-        await _complete_checks_for_stage(
+        await _sync_session_checks(
             db=db,
             org_id=session["org_id"],
             session=session,
             stage=stage,
         )
         stages = session.get("stages") or ["consent", "complete"]
-        try:
-            idx = stages.index(stage)
-            next_stage = stages[idx + 1] if idx + 1 < len(stages) else "complete"
-        except ValueError:
-            next_stage = "complete"
+        next_stage = _next_stage(stages, stage)
         patch["status"] = "in_progress" if next_stage != "complete" else "completed"
         patch["current_stage"] = next_stage
-        if stage == "document":
-            await db.documents.insert_one(
-                {
-                    "id": new_id("doc_"),
-                    "client_id": session["client_id"],
-                    "session_id": session["id"],
-                    "document_type": "government_id",
-                    "status": "uploaded",
-                    "created_at": utcnow(),
-                }
-            )
+        if next_stage == "complete":
+            patch["completed_at"] = utcnow()
     elif stage == "complete":
-        await _complete_checks_for_stage(
-            db=db,
-            org_id=session["org_id"],
-            session=session,
-            stage="complete",
-        )
         patch["status"] = "completed"
         patch["current_stage"] = "complete"
         patch["completed_at"] = utcnow()

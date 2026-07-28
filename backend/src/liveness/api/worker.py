@@ -48,9 +48,11 @@ async def process_check(check_id: str) -> None:
             "checks",
             {"id": check_id},
             {
+                "outcome": result.outcome.value,
                 "result": result.model_dump(mode="json"),
                 "status": CheckStatus.COMPLETE.value,
                 "error": None,
+                "completed_at": utc_now(),
                 "updated_at": utc_now(),
             },
         )
