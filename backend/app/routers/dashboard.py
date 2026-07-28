@@ -89,6 +89,94 @@ def _workflow_list_item(doc: dict) -> dict:
     return out
 
 
+def _verification_stages(steps: list[dict]) -> list[str]:
+    stages = ["consent"]
+    if any(step.get("type") == "document_check" for step in steps):
+        stages.append("document")
+    if any(
+        step.get("type") in {"identity_check", "enhanced_identity_check", "age_estimation_check"}
+        for step in steps
+    ):
+        stages.append("face")
+    if any(
+        step.get("type") in {"standard_screening_check", "extensive_screening_check"}
+        for step in steps
+    ):
+        stages.append("screening")
+    stages.append("complete")
+    return stages
+
+
+async def _create_session_checks(
+    *,
+    db,
+    org_id: str,
+    environment: str,
+    client: dict,
+    session_id: str,
+    workflow_steps: list[dict],
+) -> list[dict]:
+    now = utcnow()
+    checks: list[dict] = []
+    for step in workflow_steps:
+        doc = {
+            "id": new_id("chk_"),
+            "org_id": org_id,
+            "environment": environment,
+            "client_id": client["id"],
+            "client_name": client.get("name"),
+            "session_id": session_id,
+            "type": step.get("type") or "identity_check",
+            "label": step.get("label") or "Check",
+            "status": "pending",
+            "outcome": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        checks.append(doc)
+    if checks:
+        await db.checks.insert_many(checks)
+        for check in checks:
+            await emit_check_lifecycle(org_id, check, "check.pending")
+    return checks
+
+
+async def _complete_checks_for_stage(
+    *,
+    db,
+    org_id: str,
+    session: dict,
+    stage: str,
+) -> None:
+    stage_map = {
+        "document": {"document_check"},
+        "face": {"identity_check", "enhanced_identity_check", "age_estimation_check"},
+        "screening": {"standard_screening_check", "extensive_screening_check"},
+        "complete": None,
+    }
+    types = stage_map.get(stage)
+    filt: dict = {
+        "session_id": session["id"],
+        "org_id": org_id,
+        "environment": session["environment"],
+        "status": {"$ne": "complete"},
+    }
+    if types is not None:
+        filt["type"] = {"$in": list(types)}
+    pending = await db.checks.find(filt, {"_id": 0}).to_list(100)
+    for doc in pending:
+        completed = {
+            **doc,
+            "status": "complete",
+            "outcome": "clear",
+            "updated_at": utcnow(),
+            "completed_at": utcnow(),
+        }
+        await db.checks.update_one({"id": doc["id"]}, {"$set": completed})
+        await emit_check_lifecycle(org_id, completed, "check.completed")
+        await emit_check_lifecycle(org_id, completed, "check.updated")
+
+
 @router.get("/overview")
 async def overview(
     user: dict = Depends(get_current_user),
@@ -517,21 +605,57 @@ async def create_session(
     )
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    workflow_id = body.get("workflow_id")
+    workflow = None
+    workflow_steps = [{"type": "identity_check", "label": "Identity Check"}]
+    workflow_name = "Default workflow"
+    if workflow_id:
+        workflow = await db.workflows.find_one(
+            {**with_org_env(user["org_id"], environment), "id": workflow_id},
+            {"_id": 0},
+        )
+    if workflow:
+        workflow = _ensure_versions(workflow)
+        active = _active_version(workflow)
+        if active:
+            workflow_steps = active.get("steps") or workflow_steps
+            workflow_name = workflow.get("name") or workflow_name
     now = utcnow()
+    token = new_id("vfy_")
+    method = (body.get("method") or "link").lower()
     doc = {
         "id": new_id("ses_"),
         "org_id": user["org_id"],
         "environment": environment,
         "client_id": client_id,
         "client_name": client.get("name"),
-        "workflow_id": body.get("workflow_id") or "standard_kyc",
-        "status": "started",
+        "workflow_id": workflow_id or "standard_kyc",
+        "workflow_name": workflow_name,
+        "method": method,
+        "delivery_email": body.get("delivery_email") or client.get("email"),
+        "share_token": token,
+        "stages": _verification_stages(workflow_steps),
+        "current_stage": "consent",
+        "status": "invited",
+        "checks_total": len(workflow_steps),
         "created_at": now,
         "updated_at": now,
     }
     await db.sessions.insert_one(doc)
+    checks = await _create_session_checks(
+        db=db,
+        org_id=user["org_id"],
+        environment=environment,
+        client=client,
+        session_id=doc["id"],
+        workflow_steps=workflow_steps,
+    )
     await emit_session_event(user["org_id"], doc, "workflow.session.started")
-    return serialize(doc)
+    out = serialize(doc) or {}
+    out["share_url"] = f"/verify/{token}"
+    out["checks"] = [serialize(c) for c in checks]
+    out["client"] = {"id": client["id"], "name": client.get("name"), "email": client.get("email")}
+    return out
 
 
 @router.patch("/sessions/{session_id}")
@@ -560,6 +684,87 @@ async def update_session(session_id: str, body: dict, user: dict = Depends(get_c
         await emit_session_event(user["org_id"], result, status_map[status])
     elif status:
         await emit_session_event(user["org_id"], result, "workflow.session.updated")
+    return serialize(result)
+
+
+@router.get("/verify/{token}")
+async def get_verification_session(token: str):
+    db = get_database()
+    session = await db.sessions.find_one({"share_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Verification session not found")
+    client = await db.clients.find_one({"id": session["client_id"]}, {"_id": 0})
+    checks = await db.checks.find({"session_id": session["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    return {
+        "session": serialize(session),
+        "client": serialize(client),
+        "checks": [serialize(c) for c in checks],
+    }
+
+
+@router.post("/verify/{token}/progress")
+async def progress_verification_session(token: str, body: dict):
+    db = get_database()
+    session = await db.sessions.find_one({"share_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Verification session not found")
+
+    stage = (body.get("stage") or "").lower()
+    allowed = {"consent", "document", "face", "screening", "complete"}
+    if stage not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid verification stage")
+
+    patch = {"updated_at": utcnow()}
+    if stage == "consent":
+        patch["status"] = "in_progress"
+        patch["current_stage"] = "document" if "document" in (session.get("stages") or []) else "face"
+    elif stage in {"document", "face", "screening"}:
+        await _complete_checks_for_stage(
+            db=db,
+            org_id=session["org_id"],
+            session=session,
+            stage=stage,
+        )
+        stages = session.get("stages") or ["consent", "complete"]
+        try:
+            idx = stages.index(stage)
+            next_stage = stages[idx + 1] if idx + 1 < len(stages) else "complete"
+        except ValueError:
+            next_stage = "complete"
+        patch["status"] = "in_progress" if next_stage != "complete" else "completed"
+        patch["current_stage"] = next_stage
+        if stage == "document":
+            await db.documents.insert_one(
+                {
+                    "id": new_id("doc_"),
+                    "client_id": session["client_id"],
+                    "session_id": session["id"],
+                    "document_type": "government_id",
+                    "status": "uploaded",
+                    "created_at": utcnow(),
+                }
+            )
+    elif stage == "complete":
+        await _complete_checks_for_stage(
+            db=db,
+            org_id=session["org_id"],
+            session=session,
+            stage="complete",
+        )
+        patch["status"] = "completed"
+        patch["current_stage"] = "complete"
+        patch["completed_at"] = utcnow()
+
+    result = await db.sessions.find_one_and_update(
+        {"id": session["id"]},
+        {"$set": patch},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0},
+    )
+    if patch.get("status") == "completed":
+        await emit_session_event(session["org_id"], result, "workflow.session.completed")
+    else:
+        await emit_session_event(session["org_id"], result, "workflow.session.updated")
     return serialize(result)
 
 
