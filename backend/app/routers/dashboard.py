@@ -1026,14 +1026,22 @@ async def create_workflow_version(
     if source is None:
         source = _active_version(ensured) or (versions[0] if versions else None)
     now = utcnow()
-    # New versions start inactive (ComplyCube-style); activate explicitly
+    # New versions start inactive / passive (ComplyCube-style); activate explicitly.
+    description = (
+        body["description"]
+        if "description" in body
+        else (source.get("description") if source else ensured.get("description") or "")
+    )
+    steps = (
+        body["steps"]
+        if "steps" in body and isinstance(body.get("steps"), list)
+        else (source.get("steps") if source else [{"type": "identity_check", "label": "Identity Check"}])
+    )
     new_v = _make_version(
         version=next_num,
-        description=body.get("description")
-        or (source.get("description") if source else ensured.get("description") or ""),
+        description=description or "",
         status="inactive",
-        steps=body.get("steps")
-        or (source.get("steps") if source else [{"type": "identity_check", "label": "Identity Check"}]),
+        steps=steps,
         now=now,
     )
     versions.append(new_v)

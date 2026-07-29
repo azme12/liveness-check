@@ -59,6 +59,7 @@ export default function WorkflowEditorPage() {
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("inactive");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [catalogQ, setCatalogQ] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -83,6 +84,14 @@ export default function WorkflowEditorPage() {
       ),
     })).filter((g) => g.items.length > 0);
   }, [catalogQ]);
+
+  const configChanged = useMemo(() => {
+    if (!data) return false;
+    const originalSteps = data.version.steps || [];
+    const stepsChanged = JSON.stringify(steps) !== JSON.stringify(originalSteps);
+    const descriptionChanged = description !== (data.version.description || "");
+    return stepsChanged || descriptionChanged;
+  }, [data, steps, description]);
 
   function addStep(type: string, label: string) {
     setSteps((prev) => [...prev, { type, label }]);
@@ -119,17 +128,44 @@ export default function WorkflowEditorPage() {
   async function save() {
     if (!data) return;
     setSaving(true);
+    setError("");
     try {
-      const updated = await api<Version>(
-        `/api/workflows/${params.id}/versions/${params.versionId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ steps, description, status }),
-        },
-      );
-      setData({ ...data, version: updated });
-      setStatus(updated.status);
-    } finally {
+      const originalStatus = data.version.status || "inactive";
+      const statusChanged = status !== originalStatus;
+
+      // No edits: just return to versions list.
+      if (!configChanged && !statusChanged) {
+        router.push(`/workflows/${params.id}`);
+        return;
+      }
+
+      // Configuration changed on an active version → create a new passive (inactive) version.
+      // Keeps the published Active version untouched (ComplyCube-style).
+      if (configChanged && originalStatus === "active") {
+        await api<Version>(`/api/workflows/${params.id}/versions`, {
+          method: "POST",
+          body: JSON.stringify({
+            from_version_id: params.versionId,
+            steps,
+            description,
+          }),
+        });
+        router.push(`/workflows/${params.id}`);
+        return;
+      }
+
+      // Inactive/passive version edits (or status-only change) save in place.
+      await api<Version>(`/api/workflows/${params.id}/versions/${params.versionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          steps,
+          description,
+          status: configChanged ? "inactive" : status,
+        }),
+      });
+      router.push(`/workflows/${params.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save workflow");
       setSaving(false);
     }
   }
@@ -164,6 +200,16 @@ export default function WorkflowEditorPage() {
           </button>
         </div>
       </div>
+      {error ? (
+        <div className="border-b border-[var(--danger)]/40 bg-[rgba(239,68,68,0.08)] px-4 py-2 text-sm text-[var(--danger)]">
+          {error}
+        </div>
+      ) : null}
+      {configChanged && data.version.status === "active" ? (
+        <div className="border-b border-[var(--border)] bg-[rgba(59,130,246,0.08)] px-4 py-2 text-sm text-[var(--muted)]">
+          Configuration changed. Save will create a new <span className="text-white">passive (inactive)</span> version and keep the current Active one.
+        </div>
+      ) : null}
 
       <div className="grid min-h-[calc(100vh-110px)] lg:grid-cols-[280px_1fr_280px]">
         <aside className="max-h-[calc(100vh-110px)] overflow-y-auto border-r border-[var(--border)] p-3">
@@ -252,10 +298,10 @@ export default function WorkflowEditorPage() {
               className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm outline-none"
             >
               <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+              <option value="inactive">Passive (inactive)</option>
             </select>
             <div className="mt-2">
-              {status === "active" ? <Badge tone="success">ACTIVE</Badge> : <Badge>INACTIVE</Badge>}
+              {status === "active" ? <Badge tone="success">ACTIVE</Badge> : <Badge>PASSIVE</Badge>}
             </div>
           </div>
           <div>

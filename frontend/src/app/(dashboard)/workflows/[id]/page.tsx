@@ -169,7 +169,7 @@ export default function WorkflowDetailPage() {
                     {v.status === "active" ? (
                       <Badge tone="success">Active</Badge>
                     ) : (
-                      <Badge>Inactive</Badge>
+                      <Badge>Passive</Badge>
                     )}
                   </Link>
                 </td>
