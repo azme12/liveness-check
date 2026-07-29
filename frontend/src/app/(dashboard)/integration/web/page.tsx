@@ -20,6 +20,8 @@ export default function WebSdkPage() {
   const [data, setData] = useState<SdkResponse | null>(null);
   const [reveal, setReveal] = useState(false);
   const [copied, setCopied] = useState("");
+  const [demoToken, setDemoToken] = useState("");
+  const [mounted, setMounted] = useState(false);
 
   const load = useCallback(() => {
     api<SdkResponse>(`/api/integration/sdk?environment=${env}`)
@@ -31,6 +33,17 @@ export default function WebSdkPage() {
     setReveal(false);
     load();
   }, [load]);
+
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "/sdk/v1.js";
+    script.async = true;
+    script.onload = () => setMounted(true);
+    document.body.appendChild(script);
+    return () => {
+      script.remove();
+    };
+  }, []);
 
   async function refreshWebKey() {
     if (!data?.web_sdk_key?.id) return;
@@ -45,6 +58,20 @@ export default function WebSdkPage() {
     setTimeout(() => setCopied(""), 1500);
   }
 
+  function runDemo() {
+    const pk = data?.web_sdk_key?.key || "";
+    const token = demoToken.trim();
+    if (!token) return;
+    const Trustanova = (window as unknown as { Trustanova?: new (o: object) => { mount: (s: string, o: object) => void } }).Trustanova;
+    if (!Trustanova) return;
+    const trustanova = new Trustanova({
+      apiKey: pk,
+      environment: env,
+      hostedBase: window.location.origin,
+    });
+    trustanova.mount("#trustanova-demo-root", { token, height: 720 });
+  }
+
   const pk = data?.web_sdk_key?.key || "";
   const sk = data?.api_key?.key || "";
 
@@ -52,7 +79,7 @@ export default function WebSdkPage() {
     <div>
       <PageHeader
         title="Web SDK"
-        description={`Browser SDK credentials for the ${label} environment. Use the public pk_* key in your frontend.`}
+        description={`Browser SDK for the ${label} environment. Create a session with Start verification → Use SDK token, then mount it here.`}
       />
       <EnvBanner noun="Web SDK credentials" />
 
@@ -115,7 +142,7 @@ export default function WebSdkPage() {
         </Panel>
       </div>
 
-      <Panel className="p-5">
+      <Panel className="mb-4 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold">Install snippet ({label})</h2>
           <button
@@ -126,9 +153,38 @@ export default function WebSdkPage() {
             <Copy size={14} /> {copied === "snip" ? "Copied" : "Copy"}
           </button>
         </div>
+        <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-[var(--muted)]">
+          <li>Open a client → Start verification → choose “Use SDK token”.</li>
+          <li>Copy the generated session token (`vfy_…`) and embed snippet.</li>
+          <li>Load `/sdk/v1.js` and call trustanova.mount with the session token.</li>
+        </ol>
         <pre className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--bg)] p-4 text-xs leading-relaxed text-[var(--muted)]">
           {data?.snippet || "Loading…"}
         </pre>
+      </Panel>
+
+      <Panel className="p-5">
+        <h2 className="mb-2 font-semibold">Try mount here</h2>
+        <p className="mb-3 text-sm text-[var(--muted)]">
+          Paste a session token from Start verification (SDK method). {mounted ? "SDK script ready." : "Loading SDK script…"}
+        </p>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <input
+            value={demoToken}
+            onChange={(e) => setDemoToken(e.target.value)}
+            placeholder="vfy_..."
+            className="min-w-[240px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-sm outline-none"
+          />
+          <button
+            type="button"
+            disabled={!demoToken.trim() || !mounted}
+            onClick={runDemo}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            Mount SDK
+          </button>
+        </div>
+        <div id="trustanova-demo-root" className="min-h-[120px] rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg)] p-2" />
       </Panel>
     </div>
   );

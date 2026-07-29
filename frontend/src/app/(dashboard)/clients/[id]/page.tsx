@@ -59,6 +59,13 @@ type StartResponse = {
   share_token?: string;
   current_stage?: string;
   checks?: Array<{ id: string; type: string; label?: string; status: string }>;
+  sdk?: {
+    token: string;
+    publishable_key?: string;
+    script_url?: string;
+    hosted_url?: string;
+    snippet?: string;
+  };
 };
 
 type DocumentRow = {
@@ -150,6 +157,7 @@ export default function ClientDetailPage() {
           workflow_id: workflowId,
           method,
           delivery_email: deliveryEmail || client?.email || null,
+          hosted_origin: typeof window !== "undefined" ? window.location.origin : null,
         }),
       });
       setStartResult(res);
@@ -388,9 +396,34 @@ export default function ClientDetailPage() {
                       </div>
                     ) : null}
                     {method === "sdk" ? (
-                      <div>
-                        <div className="mb-1 text-xs text-[var(--muted)]">SDK token</div>
-                        <code className="break-all text-xs">{startResult.share_token}</code>
+                      <div className="space-y-2">
+                        <div>
+                          <div className="mb-1 text-xs text-[var(--muted)]">SDK token</div>
+                          <code className="break-all text-xs">{startResult.sdk?.token || startResult.share_token}</code>
+                        </div>
+                        {startResult.sdk?.publishable_key ? (
+                          <div>
+                            <div className="mb-1 text-xs text-[var(--muted)]">Publishable key</div>
+                            <code className="break-all text-xs">{startResult.sdk.publishable_key}</code>
+                          </div>
+                        ) : null}
+                        {startResult.sdk?.snippet ? (
+                          <div>
+                            <div className="mb-1 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
+                              <span>Embed snippet</span>
+                              <button
+                                type="button"
+                                onClick={() => navigator.clipboard.writeText(startResult.sdk?.snippet || "")}
+                                className="text-[var(--accent)] hover:underline"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                            <pre className="max-h-48 overflow-auto rounded bg-black/20 p-2 text-[11px] leading-relaxed text-[var(--muted)]">
+                              {startResult.sdk.snippet}
+                            </pre>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="flex flex-wrap gap-2">

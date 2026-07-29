@@ -1,7 +1,8 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { verifyUrl } from "@/lib/verifyApi";
 
 type SessionData = {
   session: {
@@ -35,8 +36,10 @@ type SessionData = {
 
 const COUNTRIES = ["Ethiopia", "Kenya", "Uganda", "United Kingdom", "United States"];
 
-export default function VerifyHostedPage() {
+function VerifyHostedInner() {
   const params = useParams<{ token: string }>();
+  const search = useSearchParams();
+  const embed = search.get("embed") === "1";
   const [data, setData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -45,13 +48,18 @@ export default function VerifyHostedPage() {
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [livePhotoFile, setLivePhotoFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
-      const res = await fetch(`/api/verify/${params.token}`, { cache: "no-store" });
+      const res = await fetch(verifyUrl(`/api/verify/${params.token}`), { cache: "no-store" });
       if (!res.ok) throw new Error("Verification session not found");
       setData((await res.json()) as SessionData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load verification");
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -61,11 +69,16 @@ export default function VerifyHostedPage() {
     load().catch(console.error);
   }, [load]);
 
+  useEffect(() => {
+    if (search.get("pk") || embed) setMode("sdk");
+  }, [search, embed]);
+
   async function progress(stage: string) {
     setBusy(true);
     setMessage("");
+    setError("");
     try {
-      const res = await fetch(`/api/verify/${params.token}/progress`, {
+      const res = await fetch(verifyUrl(`/api/verify/${params.token}/progress`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage, country, mode }),
@@ -76,6 +89,8 @@ export default function VerifyHostedPage() {
       }
       await load();
       setMessage("Stage updated successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to continue verification");
     } finally {
       setBusy(false);
     }
@@ -86,10 +101,11 @@ export default function VerifyHostedPage() {
     if (!file) return;
     setBusy(true);
     setMessage("");
+    setError("");
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`/api/verify/${params.token}/${kind}`, {
+      const res = await fetch(verifyUrl(`/api/verify/${params.token}/${kind}`), {
         method: "POST",
         body: form,
       });
@@ -99,6 +115,8 @@ export default function VerifyHostedPage() {
       }
       await load();
       setMessage(kind === "document" ? "Document uploaded." : "Live photo uploaded.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Unable to upload ${kind}`);
     } finally {
       setBusy(false);
     }
@@ -112,20 +130,28 @@ export default function VerifyHostedPage() {
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(mobileLink)}`;
 
   if (loading) {
-    return <div className="grid min-h-screen place-items-center bg-white text-black">Loading verification…</div>;
+    return <div className="grid min-h-[480px] place-items-center bg-white text-black">Loading verification…</div>;
   }
 
   if (!data) {
-    return <div className="grid min-h-screen place-items-center bg-white text-black">Verification not found.</div>;
+    return (
+      <div className="grid min-h-[480px] place-items-center bg-white px-4 text-center text-black">
+        <div>
+          <div className="text-lg font-semibold">Verification not found</div>
+          <p className="mt-2 text-sm text-neutral-600">{error || "Check the link or SDK token and try again."}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-white px-4 py-10 text-black">
+    <div className={embed ? "min-h-[640px] bg-white px-4 py-6 text-black" : "min-h-screen bg-white px-4 py-10 text-black"}>
       <div className="mx-auto max-w-3xl">
-        <h1 className="text-4xl font-semibold">Verify your identity now</h1>
+        <h1 className="text-3xl font-semibold md:text-4xl">Verify your identity now</h1>
         <p className="mt-2 text-sm text-neutral-600">
           {data.client?.name || data.session.client_name}, complete the simple steps below.
         </p>
+        {error ? <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
         <div className="mt-8 rounded-2xl border border-neutral-200 p-6">
           <ol className="space-y-4 text-sm">
@@ -181,6 +207,7 @@ export default function VerifyHostedPage() {
             onProgress={progress}
             onUpload={upload}
             completed={data.session.status === "completed"}
+            embed={embed}
           />
           {message ? <div className="mt-4 text-sm text-blue-700">{message}</div> : null}
         </div>
@@ -229,6 +256,14 @@ export default function VerifyHostedPage() {
   );
 }
 
+export default function VerifyHostedPage() {
+  return (
+    <Suspense fallback={<div className="grid min-h-[480px] place-items-center bg-white text-black">Loading verification…</div>}>
+      <VerifyHostedInner />
+    </Suspense>
+  );
+}
+
 function StageCard({
   session,
   currentStage,
@@ -246,6 +281,7 @@ function StageCard({
   onProgress,
   onUpload,
   completed,
+  embed,
 }: {
   session: SessionData["session"];
   currentStage: string;
@@ -263,6 +299,7 @@ function StageCard({
   onProgress: (stage: string) => void;
   onUpload: (kind: "document" | "live-photo") => void;
   completed: boolean;
+  embed: boolean;
 }) {
   if (completed || currentStage === "complete") {
     return (
@@ -303,9 +340,9 @@ function StageCard({
             ))}
           </select>
         </label>
-        <ModePicker mode={mode} setMode={setMode} />
-        {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
-        {mode === "sdk" ? <SdkPanel token={mobileLink.split("/").pop() || ""} /> : null}
+        {!embed ? <ModePicker mode={mode} setMode={setMode} /> : null}
+        {mode === "phone" && !embed ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
+        {mode === "sdk" && !embed ? <SdkPanel token={mobileLink.split("/").pop() || ""} /> : null}
         <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
           <span className="text-neutral-600">Upload document image</span>
           <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setDocumentFile(e.target.files?.[0] || null)} />
@@ -335,9 +372,9 @@ function StageCard({
       <div className="mt-8 space-y-4">
         <h3 className="text-2xl font-semibold">Face capture</h3>
         <p className="text-sm text-neutral-600">Complete the selfie/liveness step using the same method.</p>
-        <ModePicker mode={mode} setMode={setMode} />
-        {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
-        {mode === "sdk" ? <SdkPanel token={mobileLink.split("/").pop() || ""} /> : null}
+        {!embed ? <ModePicker mode={mode} setMode={setMode} /> : null}
+        {mode === "phone" && !embed ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
+        {mode === "sdk" && !embed ? <SdkPanel token={mobileLink.split("/").pop() || ""} /> : null}
         <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
           <span className="text-neutral-600">Upload selfie / live photo</span>
           <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setLivePhotoFile(e.target.files?.[0] || null)} />

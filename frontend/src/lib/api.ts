@@ -1,6 +1,7 @@
-const API_BASE =
+/** Backend origin for browser + server calls. Empty string = same-origin (local proxy). */
+export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL !== undefined && process.env.NEXT_PUBLIC_API_URL !== ""
-    ? process.env.NEXT_PUBLIC_API_URL
+    ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
     : typeof window !== "undefined"
       ? ""
       : "http://127.0.0.1:8100";

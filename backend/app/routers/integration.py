@@ -141,14 +141,20 @@ async def sdk_credentials(
     api_secret = (api_key or {}).get("key") or ""
     publishable = (web_key or {}).get("key") or ""
     snippet = (
-        f"import Trustanova from '@trustanova/web-sdk';\n\n"
-        f"const trustanova = new Trustanova({{\n"
-        f"  apiKey: '{publishable}',\n"
-        f"  environment: '{env_label}',\n"
-        f"}});\n\n"
-        f"await trustanova.mount('#trustanova-root', {{\n"
-        f"  workflowId: 'wf_your_workflow_id',\n"
-        f"}});"
+        f"<!-- 1) Create a verification session in the dashboard (Start verification → Use SDK token),\n"
+        f"     or via your server with the secret sk_* key. You get a token like vfy_.... -->\n"
+        f'<div id="trustanova-root"></div>\n'
+        f'<script src="/sdk/v1.js"></script>\n'
+        f"<script>\n"
+        f"  const trustanova = new Trustanova({{\n"
+        f"    apiKey: '{publishable}',\n"
+        f"    environment: '{env_label}',\n"
+        f"  }});\n\n"
+        f"  // Pass the session token from Start verification (SDK method)\n"
+        f"  trustanova.mount('#trustanova-root', {{\n"
+        f"    token: 'vfy_your_session_token',\n"
+        f"  }});\n"
+        f"</script>"
     )
     return {
         "environment": env_label,
@@ -162,7 +168,7 @@ async def sdk_credentials(
         },
         "notes": {
             "api": "Use the secret sk_* key only on your server (X-Api-Key).",
-            "web_sdk": "Use the public pk_* key in the browser / mobile SDK.",
+            "web_sdk": "Load /sdk/v1.js in the browser with your public pk_* key, then mount with a session token from Start verification (SDK method).",
         },
     }
 

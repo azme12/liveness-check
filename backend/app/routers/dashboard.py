@@ -668,6 +668,38 @@ async def create_session(
     out["share_url"] = f"/verify/{token}"
     out["checks"] = [serialize(c) for c in checks]
     out["client"] = {"id": client["id"], "name": client.get("name"), "email": client.get("email")}
+
+    # SDK payload: publishable key + mount snippet for Web SDK embed.
+    hosted_origin = (body.get("hosted_origin") or "").rstrip("/")
+    from app.routers.integration import ensure_org_keys
+
+    await ensure_org_keys(user["org_id"])
+    access = "sandbox" if environment == "test" else "live"
+    web_key = await db.api_keys.find_one(
+        {"org_id": user["org_id"], "access": access, "kind": "web_sdk"},
+        {"_id": 0},
+    )
+    publishable = (web_key or {}).get("key") or ""
+    sdk_script = f"{hosted_origin}/sdk/v1.js" if hosted_origin else "/sdk/v1.js"
+    snippet = (
+        f'<div id="trustanova-root"></div>\n'
+        f'<script src="{sdk_script}"></script>\n'
+        f"<script>\n"
+        f"  const trustanova = new Trustanova({{\n"
+        f"    apiKey: '{publishable}',\n"
+        f"    environment: '{environment}',\n"
+        f"    hostedBase: '{hosted_origin or ''}',\n"
+        f"  }});\n"
+        f"  trustanova.mount('#trustanova-root', {{ token: '{token}' }});\n"
+        f"</script>"
+    )
+    out["sdk"] = {
+        "token": token,
+        "publishable_key": publishable,
+        "script_url": sdk_script,
+        "hosted_url": f"{hosted_origin}/verify/{token}" if hosted_origin else f"/verify/{token}",
+        "snippet": snippet,
+    }
     return out
 
 
