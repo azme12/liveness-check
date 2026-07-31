@@ -5,7 +5,7 @@ import math
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pymongo import ReturnDocument
 
@@ -792,6 +792,36 @@ async def update_session(session_id: str, body: dict, user: dict = Depends(get_c
     return serialize(result)
 
 
+async def _run_face_checks_after_upload(session_id: str, org_id: str) -> None:
+    """Run identity checks outside the upload request to avoid Render OOM/timeouts."""
+    db = get_database()
+    session = await db.sessions.find_one({"id": session_id}, {"_id": 0})
+    if not session or not session.get("document_id") or not session.get("live_photo_id"):
+        return
+    try:
+        await _sync_session_checks(
+            db=db,
+            org_id=org_id,
+            session=session,
+            stage="face",
+        )
+        stages = session.get("stages") or ["consent", "document", "face", "complete"]
+        next_stage = _next_stage(stages, "face")
+        await db.sessions.update_one(
+            {"id": session_id},
+            {
+                "$set": {
+                    "current_stage": next_stage,
+                    "status": "in_progress" if next_stage != "complete" else "completed",
+                    "updated_at": utcnow(),
+                    **({"completed_at": utcnow()} if next_stage == "complete" else {}),
+                }
+            },
+        )
+    except Exception:
+        pass
+
+
 @router.get("/verify/{token}")
 async def get_verification_session(token: str):
     db = get_database()
@@ -801,7 +831,11 @@ async def get_verification_session(token: str):
     client = await db.clients.find_one({"id": session["client_id"]}, {"_id": 0})
     checks = await db.checks.find({"session_id": session["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
     document, live_photo = await _attach_verification_media(db, session)
-    verification_response = await build_partner_verification_response(session["id"])
+    verification_response = None
+    try:
+        verification_response = await build_partner_verification_response(session["id"])
+    except Exception:
+        verification_response = None
     return {
         "session": serialize(session),
         "client": serialize(client),
@@ -893,7 +927,11 @@ async def upload_verification_document(
 
 
 @router.post("/verify/{token}/live-photo")
-async def upload_verification_live_photo(token: str, file: UploadFile = File(...)):
+async def upload_verification_live_photo(
+    token: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+):
     db = get_database()
     session = await db.sessions.find_one({"share_token": token}, {"_id": 0})
     if not session:
@@ -902,11 +940,17 @@ async def upload_verification_live_photo(token: str, file: UploadFile = File(...
     if not data:
         raise HTTPException(status_code=400, detail="Empty live photo file")
     try:
-        image = decode_image(data)
+        image = decode_image(data, max_side=1280)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid image file") from exc
 
-    profile = validate_selfie_profile(image)
+    try:
+        profile = validate_selfie_profile(image)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Selfie analysis is temporarily unavailable. Wait 30 seconds and try again.",
+        ) from exc
     if not profile.passed:
         raise HTTPException(
             status_code=422,
@@ -937,30 +981,12 @@ async def upload_verification_live_photo(token: str, file: UploadFile = File(...
     )
     session = {**session, **session_patch}
 
-    # Auto-run document↔selfie identity checks when both images are present (hosted flow).
     if session.get("document_id"):
-        try:
-            await _sync_session_checks(
-                db=db,
-                org_id=session["org_id"],
-                session=session,
-                stage="face",
-            )
-            stages = session.get("stages") or ["consent", "document", "face", "complete"]
-            next_stage = _next_stage(stages, "face")
-            await db.sessions.update_one(
-                {"id": session["id"]},
-                {
-                    "$set": {
-                        "current_stage": next_stage,
-                        "status": "in_progress" if next_stage != "complete" else "completed",
-                        "updated_at": utcnow(),
-                        **({"completed_at": utcnow()} if next_stage == "complete" else {}),
-                    }
-                },
-            )
-        except HTTPException:
-            pass
+        background_tasks.add_task(
+            _run_face_checks_after_upload,
+            session["id"],
+            session["org_id"],
+        )
 
     out = serialize(photo) or photo
     out["url"] = _verification_media_url(token, "live-photo")

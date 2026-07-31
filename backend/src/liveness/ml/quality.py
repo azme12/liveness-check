@@ -64,9 +64,13 @@ def assess_quality(image: np.ndarray) -> QualityReport:
     return QualityReport(score=score, blur_score=blur_norm, brightness=brightness, warnings=warnings)
 
 
-def decode_image(data: bytes) -> np.ndarray:
+def decode_image(data: bytes, *, max_side: int | None = None) -> np.ndarray:
     arr = np.frombuffer(data, dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Could not decode image bytes")
+    if max_side and max(img.shape[:2]) > max_side:
+        h, w = img.shape[:2]
+        scale = max_side / max(h, w)
+        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
     return img
