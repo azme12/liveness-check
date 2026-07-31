@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Copy, MoreHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Panel } from "@/components/AppShell";
 import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
@@ -122,6 +122,8 @@ export default function ClientDetailPage() {
     document?: { url: string; document_type?: string | null } | null;
     live_photo?: { url: string } | null;
   } | null>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
+  const selfieInputRef = useRef<HTMLInputElement>(null);
 
   const loadClient = useCallback(() => {
     api<Client>(`/api/clients/${params.id}`)
@@ -155,7 +157,7 @@ export default function ClientDetailPage() {
     setStartOpen(true);
     setStartResult(null);
     setStartError("");
-    setConsentAccepted(false);
+    setConsentAccepted(true);
     setDocumentFile(null);
     setLivePhotoFile(null);
     setUploadMessage("");
@@ -193,11 +195,13 @@ export default function ClientDetailPage() {
       });
       setStartResult(res);
       if (method === "upload" && res.share_token) {
+        setConsentAccepted(true);
         await fetch(verifyUrl(`/api/verify/${res.share_token}/progress`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ stage: "consent" }),
         }).catch(console.error);
+        await refreshVerifyChecksForToken(res.share_token);
       }
       setTab("sessions");
       api<Paginated<Session>>(`/api/clients/${params.id}/sessions?page=1&page_size=10`)
@@ -224,9 +228,9 @@ export default function ClientDetailPage() {
 
   const verifyToken = startResult?.share_token || "";
 
-  async function refreshVerifyChecks() {
-    if (!verifyToken) return;
-    const res = await fetch(verifyUrl(`/api/verify/${verifyToken}`), { cache: "no-store" });
+  async function refreshVerifyChecksForToken(token: string) {
+    if (!token) return;
+    const res = await fetch(verifyUrl(`/api/verify/${token}`), { cache: "no-store" });
     if (!res.ok) return;
     const data = (await res.json()) as {
       checks?: Check[];
@@ -241,10 +245,23 @@ export default function ClientDetailPage() {
     loadClient();
   }
 
-  async function uploadVerificationPhoto(kind: "document" | "live-photo") {
-    if (!verifyToken) return;
-    const file = kind === "document" ? documentFile : livePhotoFile;
-    if (!file) return;
+  async function refreshVerifyChecks() {
+    await refreshVerifyChecksForToken(verifyToken);
+  }
+
+  async function uploadVerificationPhoto(
+    kind: "document" | "live-photo",
+    fileOverride?: File | null,
+  ) {
+    if (!verifyToken) {
+      setUploadError('Click "Create & upload photos" first (Step 2).');
+      return;
+    }
+    const file = fileOverride ?? (kind === "document" ? documentFile : livePhotoFile);
+    if (!file) {
+      setUploadError(`Choose a ${kind === "document" ? "document" : "selfie"} image first.`);
+      return;
+    }
     if (kind === "document" && !consentAccepted) {
       setUploadError("Accept consent before uploading.");
       return;
@@ -278,6 +295,18 @@ export default function ClientDetailPage() {
     } finally {
       setUploadBusy(false);
     }
+  }
+
+  async function onDocumentPicked(file: File | null) {
+    setDocumentFile(file);
+    setUploadError("");
+    if (file) await uploadVerificationPhoto("document", file);
+  }
+
+  async function onSelfiePicked(file: File | null) {
+    setLivePhotoFile(file);
+    setUploadError("");
+    if (file) await uploadVerificationPhoto("live-photo", file);
   }
 
   const identityCheck = useMemo(() => {
@@ -501,12 +530,15 @@ export default function ClientDetailPage() {
                 </div>
                 {startResult && method === "upload" ? (
                   <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
-                    <label className="flex items-start gap-2">
+                    {!verifyToken ? (
+                      <p className="text-xs text-amber-400">Session missing — click “Create & upload photos” in Step 2.</p>
+                    ) : null}
+                    <label className="flex cursor-pointer items-start gap-2">
                       <input
                         type="checkbox"
                         checked={consentAccepted}
                         onChange={(e) => setConsentAccepted(e.target.checked)}
-                        className="mt-1"
+                        className="mt-1 cursor-pointer"
                       />
                       <span className="text-[var(--muted)]">
                         Client consents to identity verification and biometric processing.
@@ -517,7 +549,7 @@ export default function ClientDetailPage() {
                       <select
                         value={documentType}
                         onChange={(e) => setDocumentType(e.target.value)}
-                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2"
+                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2 text-[var(--text)]"
                       >
                         <option value="fayda">Fayda ID</option>
                         <option value="kebele_id">Kebele ID</option>
@@ -528,7 +560,7 @@ export default function ClientDetailPage() {
                     </label>
                     {verifyMedia?.document?.url ? (
                       <div className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-2 text-xs">
-                        <div className="text-[var(--accent)]">Document uploaded — used on verify page</div>
+                        <div className="text-[var(--accent)]">Document uploaded</div>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={verifyUrl(verifyMedia.document.url)}
@@ -537,26 +569,40 @@ export default function ClientDetailPage() {
                         />
                       </div>
                     ) : null}
-                    <label className="block rounded-lg border border-dashed border-[var(--border)] p-3">
+                    <div className="rounded-lg border border-dashed border-[var(--border)] p-3">
                       <span className="text-xs text-[var(--muted)]">1. Document photo (ID / passport)</span>
                       <input
-                        className="mt-2 block w-full text-xs"
+                        ref={documentInputRef}
+                        className="sr-only"
                         type="file"
                         accept="image/*"
-                        onChange={(e) => setDocumentFile(e.target.files?.[0] || null)}
+                        onChange={(e) => {
+                          void onDocumentPicked(e.target.files?.[0] || null);
+                          e.target.value = "";
+                        }}
                       />
                       <button
                         type="button"
-                        disabled={uploadBusy || !documentFile || !consentAccepted}
-                        onClick={() => uploadVerificationPhoto("document")}
-                        className="mt-2 w-full rounded-lg border border-[var(--border)] px-3 py-2 disabled:opacity-50"
+                        disabled={uploadBusy}
+                        onClick={() => documentInputRef.current?.click()}
+                        className="mt-2 w-full cursor-pointer rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-3 text-sm font-medium text-[var(--text)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {uploadBusy ? "Uploading…" : "Upload document"}
+                        {uploadBusy ? "Uploading document…" : documentFile ? `Selected: ${documentFile.name}` : "Choose document photo"}
                       </button>
-                    </label>
+                      {documentFile && !verifyMedia?.document?.url ? (
+                        <button
+                          type="button"
+                          disabled={uploadBusy || !consentAccepted}
+                          onClick={() => void uploadVerificationPhoto("document")}
+                          className="mt-2 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                        >
+                          Upload document
+                        </button>
+                      ) : null}
+                    </div>
                     {verifyMedia?.live_photo?.url ? (
                       <div className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-2 text-xs">
-                        <div className="text-[var(--accent)]">Selfie uploaded — used on verify page</div>
+                        <div className="text-[var(--accent)]">Selfie uploaded</div>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={verifyUrl(verifyMedia.live_photo.url)}
@@ -565,23 +611,40 @@ export default function ClientDetailPage() {
                         />
                       </div>
                     ) : null}
-                    <label className="block rounded-lg border border-dashed border-[var(--border)] p-3">
+                    <div className="rounded-lg border border-dashed border-[var(--border)] p-3">
                       <span className="text-xs text-[var(--muted)]">2. Selfie / live photo</span>
                       <input
-                        className="mt-2 block w-full text-xs"
+                        ref={selfieInputRef}
+                        className="sr-only"
                         type="file"
                         accept="image/*"
-                        onChange={(e) => setLivePhotoFile(e.target.files?.[0] || null)}
+                        onChange={(e) => {
+                          void onSelfiePicked(e.target.files?.[0] || null);
+                          e.target.value = "";
+                        }}
                       />
                       <button
                         type="button"
-                        disabled={uploadBusy || !livePhotoFile}
-                        onClick={() => uploadVerificationPhoto("live-photo")}
-                        className="mt-2 w-full rounded-lg bg-[var(--accent)] px-3 py-2 font-semibold text-white disabled:opacity-50"
+                        disabled={uploadBusy}
+                        onClick={() => selfieInputRef.current?.click()}
+                        className="mt-2 w-full cursor-pointer rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-3 text-sm font-medium text-[var(--text)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {uploadBusy ? "Running check…" : "Upload selfie & run check"}
+                        {uploadBusy ? "Running check…" : livePhotoFile ? `Selected: ${livePhotoFile.name}` : "Choose selfie photo"}
                       </button>
-                    </label>
+                      {livePhotoFile && !verifyMedia?.live_photo?.url ? (
+                        <button
+                          type="button"
+                          disabled={uploadBusy}
+                          onClick={() => void uploadVerificationPhoto("live-photo")}
+                          className="mt-2 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                        >
+                          Upload selfie & run check
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-[10px] text-[var(--muted)]">
+                      Pick a photo — it uploads automatically after you choose a file.
+                    </p>
                     {uploadError ? <div className="text-xs text-red-400">{uploadError}</div> : null}
                     {uploadMessage ? <div className="text-xs text-[var(--accent)]">{uploadMessage}</div> : null}
                     {identityCheck ? (
