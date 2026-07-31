@@ -9,6 +9,7 @@ import numpy as np
 
 from liveness.config import get_settings
 from liveness.ml.face import FaceAnalyzer, get_face_analyzer
+from liveness.ml.openface import OpenFaceAnalyzer, get_openface_analyzer
 from liveness.ml.quality import _to_bgr
 
 ISSUE_MESSAGES: dict[str, str] = {
@@ -25,6 +26,11 @@ ISSUE_MESSAGES: dict[str, str] = {
     "busy_background": "Use a plain background — avoid clutter behind you.",
     "glare": "Reduce glare or reflections on your face.",
     "low_quality": "Image quality too low. Retake the selfie.",
+    "head_turned": "Face the camera directly — do not turn your head left or right.",
+    "head_tilted_up": "Look straight ahead — do not look up.",
+    "head_tilted_down": "Look straight ahead — do not look down.",
+    "head_rolled": "Keep your head level — do not tilt sideways.",
+    "head_pose_invalid": "Face the camera directly with a neutral, frontal pose.",
 }
 
 
@@ -196,6 +202,34 @@ def validate_selfie_profile(
     checks["plain_background"] = not _busy_background(bgr, face.bbox)
     if not checks["plain_background"]:
         issues.append("busy_background")
+
+    insightface_pose = None
+    if face.pose_yaw is not None and face.pose_pitch is not None and face.pose_roll is not None:
+        insightface_pose = (face.pose_yaw, face.pose_pitch, face.pose_roll)
+
+    pose_analyzer = get_openface_analyzer()
+    pose_report = pose_analyzer.analyze(
+        bgr,
+        face.bbox,
+        insightface_pose=insightface_pose,
+        limits=pose_analyzer.selfie_limits,
+    )
+    checks["head_pose"] = pose_report.passed
+    if not pose_report.passed:
+        settings = get_settings()
+        yaw = pose_report.head_pose_yaw
+        pitch = pose_report.head_pose_pitch
+        roll = pose_report.head_pose_roll
+        if yaw is not None and abs(yaw) > settings.selfie_max_yaw:
+            issues.append("head_turned")
+        elif pitch is not None and pitch > settings.selfie_max_pitch:
+            issues.append("head_tilted_up")
+        elif pitch is not None and pitch < -settings.selfie_max_pitch:
+            issues.append("head_tilted_down")
+        elif roll is not None and abs(roll) > settings.selfie_max_roll:
+            issues.append("head_rolled")
+        else:
+            issues.append("head_pose_invalid")
 
     passed = len(issues) == 0
     score_parts = [1.0 if v else 0.0 for v in checks.values()]

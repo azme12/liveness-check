@@ -8,7 +8,9 @@ from typing import Any
 import numpy as np
 
 from liveness.config import Settings, get_settings
-from liveness.ml import DocumentOcr, LivenessDetector, OpenFaceAnalyzer, assess_quality
+from liveness.ml import DocumentOcr, LivenessDetector, assess_quality
+from liveness.ml.face import get_face_analyzer
+from liveness.ml.openface import get_openface_analyzer
 from liveness.ml.face import get_face_analyzer
 from liveness.ml.document_types import resolve_document_type
 from liveness.ml.partner_format import build_identity_result_breakdown
@@ -74,7 +76,7 @@ class CheckEngine:
         self.ocr = DocumentOcr()
         self.liveness = LivenessDetector()
         self.faces = get_face_analyzer()
-        self.openface = OpenFaceAnalyzer()
+        self.openface = get_openface_analyzer()
 
     def run(self, check_type: CheckType, ctx: CheckContext) -> CheckResult:
         if check_type == CheckType.DOCUMENT:

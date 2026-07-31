@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import math
 
 import cv2
 import numpy as np
@@ -16,6 +17,9 @@ class FaceDetection:
     bbox: tuple[int, int, int, int]  # x, y, w, h
     embedding: np.ndarray | None = None
     confidence: float = 1.0
+    pose_yaw: float | None = None
+    pose_pitch: float | None = None
+    pose_roll: float | None = None
 
 
 @dataclass
@@ -62,17 +66,34 @@ class FaceAnalyzer:
             return None
         return max(faces, key=lambda f: f.bbox[2] * f.bbox[3])
 
+    def _pose_from_insightface(self, face) -> tuple[float | None, float | None, float | None]:
+        raw = getattr(face, "pose", None)
+        if raw is None:
+            return None, None, None
+        arr = np.asarray(raw, dtype=np.float32).reshape(-1)
+        if arr.size < 3:
+            return None, None, None
+        yaw, pitch, roll = float(arr[0]), float(arr[1]), float(arr[2])
+        # InsightFace reports degrees for most buffalo models.
+        if max(abs(yaw), abs(pitch), abs(roll)) <= math.pi + 0.01:
+            yaw, pitch, roll = math.degrees(yaw), math.degrees(pitch), math.degrees(roll)
+        return yaw, pitch, roll
+
     def _detect_insightface(self, image: np.ndarray) -> list[FaceDetection]:
         assert self._app is not None
         faces = self._app.get(image)
         out: list[FaceDetection] = []
         for f in faces:
             x1, y1, x2, y2 = f.bbox.astype(int)
+            yaw, pitch, roll = self._pose_from_insightface(f)
             out.append(
                 FaceDetection(
                     bbox=(int(x1), int(y1), int(x2 - x1), int(y2 - y1)),
                     embedding=np.asarray(f.normed_embedding, dtype=np.float32),
                     confidence=float(getattr(f, "det_score", 1.0)),
+                    pose_yaw=yaw,
+                    pose_pitch=pitch,
+                    pose_roll=roll,
                 )
             )
         return out

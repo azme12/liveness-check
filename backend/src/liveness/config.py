@@ -27,7 +27,14 @@ class Settings(BaseSettings):
     openface_enabled: bool = False
     openface_max_yaw: float = 25.0
     openface_max_pitch: float = 20.0
+    openface_max_roll: float = 15.0
     openface_min_certainty: float = 0.5
+    openface_auto_detect: bool = True
+    # Selfie upload head-pose gate (OpenFace / InsightFace / bbox proxy)
+    selfie_max_yaw: float = 20.0
+    selfie_max_pitch: float = 15.0
+    selfie_max_roll: float = 12.0
+    selfie_min_pose_certainty: float = 0.45
     # Strict live-selfie profile gate (glasses, background, blur, etc.)
     selfie_min_face_area_ratio: float = 0.14
     selfie_min_blur_laplacian: float = 90.0
