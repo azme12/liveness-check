@@ -142,16 +142,19 @@ async def _deliver_now(delivery_id: str) -> None:
     status = "failed"
     error = None
     http_status = None
+    response_text = None
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(webhook["url"], content=body, headers=headers)
             http_status = resp.status_code
+            response_text = resp.text[:4000]
             if 200 <= resp.status_code < 300:
                 status = "succeeded"
             else:
                 error = f"HTTP {resp.status_code}: {resp.text[:300]}"
     except Exception as exc:  # noqa: BLE001
         error = str(exc)
+        response_text = None
 
     await db.webhook_deliveries.update_one(
         {"id": delivery_id},
@@ -160,6 +163,8 @@ async def _deliver_now(delivery_id: str) -> None:
                 "status": status,
                 "http_status": http_status,
                 "error": error,
+                "request_body": body_obj,
+                "response_body": response_text,
                 "finished_at": utcnow(),
             }
         },
@@ -333,7 +338,78 @@ def scores_passed_face_match(scores: dict[str, Any]) -> bool:
     return bool(scores.get("face_match_passed")) and bool(scores.get("liveness_passed"))
 
 
+async def build_verification_result_payload(session_id: str) -> dict[str, Any] | None:
+    db = get_database()
+    session = await db.sessions.find_one({"id": session_id}, {"_id": 0})
+    if not session:
+        return None
+    checks = await db.checks.find({"session_id": session_id}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    check_payloads = [_build_check_webhook_payload(c) for c in checks]
+    identity = next((c for c in checks if c.get("type") == "identity_check"), None)
+    scores = _extract_check_scores(identity) if identity else {}
+    outcomes = [str(c.get("outcome")).lower() for c in checks if c.get("outcome")]
+    summary_outcome = "clear"
+    if any(o == "reject" for o in outcomes):
+        summary_outcome = "reject"
+    elif any(o == "consider" for o in outcomes):
+        summary_outcome = "consider"
+    return {
+        "session_id": session_id,
+        "client_id": session.get("client_id"),
+        "client_name": session.get("client_name"),
+        "status": session.get("status"),
+        "document_id": session.get("document_id"),
+        "live_photo_id": session.get("live_photo_id"),
+        "share_token": session.get("share_token"),
+        "summary": {
+            "outcome": summary_outcome,
+            "checks_total": len(checks),
+            "checks_complete": sum(1 for c in checks if (c.get("status") or "").lower() == "complete"),
+        },
+        "scores": scores,
+        "checks": check_payloads,
+        "completed_at": session.get("completed_at") or session.get("updated_at"),
+    }
+
+
+async def emit_verification_completed(org_id: str, session_id: str) -> None:
+    """Send one webhook with full verification request/response (all checks + scores)."""
+    payload = await build_verification_result_payload(session_id)
+    if not payload:
+        return
+    session = await get_database().sessions.find_one({"id": session_id}, {"_id": 0})
+    if session:
+        payload["session"] = serialize(session) or session
+    await emit_event(org_id, "workflow.session.completed", payload, resource_type="sessions")
+
+
+async def maybe_emit_verification_completed(check_id: str) -> None:
+    db = get_database()
+    check = await db.checks.find_one({"id": check_id}, {"_id": 0})
+    if not check or not check.get("session_id"):
+        return
+    org_id = check.get("org_id")
+    if not org_id:
+        client = await db.clients.find_one({"id": check.get("client_id")}, {"_id": 0})
+        org_id = (client or {}).get("org_id")
+    if not org_id:
+        return
+    session_id = check["session_id"]
+    pending = await db.checks.count_documents(
+        {"session_id": session_id, "status": {"$nin": ["complete", "failed"]}}
+    )
+    if pending > 0:
+        return
+    await emit_verification_completed(org_id, session_id)
+
+
 async def emit_session_event(org_id: str, session: dict[str, Any], event_type: str) -> None:
+    if event_type == "workflow.session.completed" and session.get("id"):
+        payload = await build_verification_result_payload(session["id"])
+        if payload:
+            payload["session"] = serialize(session) or session
+            await emit_event(org_id, event_type, payload, resource_type="sessions")
+            return
     await emit_event(org_id, event_type, serialize(session) or session, resource_type="sessions")
 
 
@@ -364,3 +440,7 @@ async def emit_check_finished_from_id(check_id: str) -> None:
         check = {**check, "outcome": str(outcome).lower()}
     await emit_check_lifecycle(org_id, check, "check.completed")
     await emit_check_lifecycle(org_id, check, "check.updated")
+    try:
+        await maybe_emit_verification_completed(check_id)
+    except Exception:  # noqa: BLE001
+        pass

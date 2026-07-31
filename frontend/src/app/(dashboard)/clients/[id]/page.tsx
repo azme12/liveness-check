@@ -101,6 +101,8 @@ export default function ClientDetailPage() {
   const [sessions, setSessions] = useState<Paginated<Session> | null>(null);
   const [documents, setDocuments] = useState<Paginated<DocumentRow> | null>(null);
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
+  const [workflowsLoading, setWorkflowsLoading] = useState(false);
+  const [workflowsError, setWorkflowsError] = useState("");
   const [startOpen, setStartOpen] = useState(false);
   const [workflowId, setWorkflowId] = useState("");
   const [method, setMethod] = useState<"upload" | "email" | "link" | "phone">("upload");
@@ -153,26 +155,31 @@ export default function ClientDetailPage() {
     setUploadMessage("");
     setUploadError("");
     setLiveChecks([]);
+    setWorkflowsLoading(true);
+    setWorkflowsError("");
     try {
       const res = await api<Paginated<{ id: string; name: string }>>("/api/workflows?page=1&page_size=50");
       setWorkflows(res.items);
       const first = res.items[0];
-      if (first) setWorkflowId(first.id);
+      setWorkflowId(first?.id || "");
       setDeliveryEmail(client?.email || "");
     } catch (err) {
-      console.error(err);
+      setWorkflowsError(err instanceof Error ? err.message : "Failed to load workflows");
+      setWorkflows([]);
+      setWorkflowId("");
+    } finally {
+      setWorkflowsLoading(false);
     }
   }
 
   async function startVerification() {
-    if (!workflowId) return;
     setStarting(true);
     try {
       const res = await api<StartResponse>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({
           client_id: params.id,
-          workflow_id: workflowId,
+          workflow_id: workflowId || null,
           method,
           delivery_email: deliveryEmail || client?.email || null,
         }),
@@ -420,15 +427,34 @@ export default function ClientDetailPage() {
                   <select
                     value={workflowId}
                     onChange={(e) => setWorkflowId(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 outline-none"
+                    disabled={workflowsLoading}
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2 text-[var(--text)] outline-none disabled:opacity-60"
                   >
-                    {workflows.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
+                    {workflowsLoading ? (
+                      <option value="">Loading workflows…</option>
+                    ) : workflows.length === 0 ? (
+                      <option value="">Default verification (identity check)</option>
+                    ) : (
+                      workflows.map((w) => (
+                        <option key={w.id} value={w.id} className="bg-[var(--bg-panel)] text-[var(--text)]">
+                          {w.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </label>
+                {workflowsError ? (
+                  <p className="mt-2 text-xs text-red-400">{workflowsError}</p>
+                ) : null}
+                {!workflowsLoading && workflows.length === 0 && !workflowsError ? (
+                  <p className="mt-2 text-xs text-[var(--muted)]">
+                    No custom workflow yet — a default identity check will run. Create one under{" "}
+                    <Link href="/workflows" className="text-[var(--accent)] hover:underline">
+                      Workflows
+                    </Link>
+                    .
+                  </p>
+                ) : null}
                 {method === "email" ? (
                   <label className="mt-4 block text-sm">
                     <span className="text-[var(--muted)]">Recipient email</span>
@@ -443,7 +469,7 @@ export default function ClientDetailPage() {
                 ) : null}
                 <button
                   type="button"
-                  disabled={starting || !workflowId}
+                  disabled={starting || workflowsLoading}
                   onClick={startVerification}
                   className="mt-4 w-full rounded-lg bg-[var(--accent)] px-4 py-2 font-semibold text-white disabled:opacity-60"
                 >

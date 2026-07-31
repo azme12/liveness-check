@@ -81,6 +81,37 @@ def _active_version(doc: dict) -> dict | None:
     return versions[0] if versions else None
 
 
+async def _ensure_default_workflow(db, org_id: str, environment: str) -> None:
+    """Create a starter workflow when an org has none in this environment."""
+    filt = with_org_env(org_id, environment)
+    if await db.workflows.count_documents(filt) > 0:
+        return
+    now = utcnow()
+    steps = [{"type": "identity_check", "label": "Identity Check"}]
+    version = _make_version(
+        version=1,
+        description="Default identity verification flow",
+        status="active",
+        steps=steps,
+        now=now,
+    )
+    await db.workflows.insert_one(
+        {
+            "id": new_id("wf_"),
+            "org_id": org_id,
+            "environment": environment,
+            "name": "Standard KYC",
+            "description": "Document + selfie identity check",
+            "status": "active",
+            "version": 1,
+            "steps": steps,
+            "versions": [version],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+
 def _workflow_list_item(doc: dict) -> dict:
     doc = _ensure_versions(doc)
     active = _active_version(doc)
@@ -968,6 +999,7 @@ async def list_workflows(
     environment: str = Depends(environment_query),
 ):
     db = get_database()
+    await _ensure_default_workflow(db, user["org_id"], environment)
     filt: dict = with_org_env(user["org_id"], environment)
     if len(q.strip()) >= 3:
         rx = re.compile(re.escape(q.strip()), re.I)

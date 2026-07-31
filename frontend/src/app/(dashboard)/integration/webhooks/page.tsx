@@ -20,9 +20,9 @@ type Webhook = {
 
 const DEFAULT_EVENTS = [
   "check.completed",
+  "check.completed.clear",
   "check.failed",
-  "check.updated",
-  "check.monitoring.attention",
+  "workflow.session.completed",
 ];
 
 export default function WebhooksPage() {
@@ -137,6 +137,15 @@ export default function WebhooksPage() {
         </button>
       </Panel>
       <div className="space-y-3">
+        {items.length === 0 ? (
+          <Panel className="p-8 text-center text-sm text-[var(--muted)]">
+            <p>No webhooks yet. Add an HTTPS endpoint to receive verification results (scores, face match, liveness).</p>
+            <p className="mt-2">
+              Subscribe to <code className="text-[var(--text)]">check.completed</code> and{" "}
+              <code className="text-[var(--text)]">workflow.session.completed</code> for full request/response payloads.
+            </p>
+          </Panel>
+        ) : null}
         {items.map((wh) => (
           <Panel key={wh.id} className="p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
