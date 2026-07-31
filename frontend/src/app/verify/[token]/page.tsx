@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { verifyUrl } from "@/lib/verifyApi";
+import { parseUploadDetail, type ProfileValidation } from "@/lib/uploadErrors";
 
 type MediaAsset = {
   id: string;
@@ -90,6 +91,7 @@ function VerifyHostedInner() {
   const [livePhotoFile, setLivePhotoFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [profileValidation, setProfileValidation] = useState<ProfileValidation | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,6 +144,7 @@ function VerifyHostedInner() {
     setBusy(true);
     setMessage("");
     setError("");
+    if (kind === "live-photo") setProfileValidation(null);
     try {
       const form = new FormData();
       form.append("file", file);
@@ -153,9 +156,19 @@ function VerifyHostedInner() {
         method: "POST",
         body: form,
       });
+      const payload = (await res.json().catch(() => null)) as {
+        detail?: unknown;
+        profile_validation?: ProfileValidation;
+      } | null;
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.detail || `Unable to upload ${kind}`);
+        const parsed = parseUploadDetail(payload?.detail);
+        if (kind === "live-photo" && parsed.profileValidation) {
+          setProfileValidation(parsed.profileValidation);
+        }
+        throw new Error(parsed.message);
+      }
+      if (kind === "live-photo" && payload?.profile_validation) {
+        setProfileValidation(payload.profile_validation);
       }
       await load();
       setMessage(
@@ -259,6 +272,7 @@ function VerifyHostedInner() {
             onProgress={progress}
             onUpload={upload}
             completed={data.session.status === "completed"}
+            profileValidation={profileValidation}
           />
           {message ? <div className="mt-4 text-sm text-blue-700">{message}</div> : null}
         </div>
@@ -385,6 +399,7 @@ function StageCard({
   onProgress,
   onUpload,
   completed,
+  profileValidation,
 }: {
   session: SessionData["session"];
   document?: MediaAsset | null;
@@ -406,6 +421,7 @@ function StageCard({
   onProgress: (stage: string) => void;
   onUpload: (kind: "document" | "live-photo") => void;
   completed: boolean;
+  profileValidation?: ProfileValidation | null;
 }) {
   if (completed || currentStage === "complete") {
     return (
@@ -520,11 +536,24 @@ function StageCard({
           </div>
         ) : null}
         <p className="text-sm text-neutral-600">
-          {livePhotoUrl
-            ? "Your selfie is already uploaded. Run the liveness + face match check below."
-            : `Upload a selfie — we match it to your ${documentType.replaceAll("_", " ")} photo and run liveness automatically.`}
+          Plain background, no glasses, full face visible. Profile is validated before matching your ID.
         </p>
-        {livePhotoUrl ? (
+        {profileValidation && !profileValidation.passed ? (
+          <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+            <div className="font-semibold">Selfie profile failed — upload again</div>
+            <ul className="mt-2 list-inside list-disc">
+              {(profileValidation.messages || []).map((m) => (
+                <li key={m}>{m}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {profileValidation?.passed ? (
+          <div className="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+            Selfie profile passed.
+          </div>
+        ) : null}
+        {livePhotoUrl && profileValidation?.passed !== false ? (
           <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
             <div className="font-medium">Selfie already uploaded</div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -545,13 +574,13 @@ function StageCard({
           </>
         )}
         <div className="flex gap-3">
-          {!livePhotoUrl ? (
+          {!livePhotoUrl || profileValidation?.passed === false ? (
             <button
               disabled={busy || !livePhotoFile}
               onClick={() => onUpload("live-photo")}
               className="flex-1 rounded-lg border border-neutral-300 px-4 py-3 disabled:opacity-60"
             >
-              {busy ? "Uploading…" : "Upload selfie"}
+              {busy ? "Uploading…" : profileValidation?.passed === false ? "Upload selfie again" : "Upload selfie"}
             </button>
           ) : null}
           <button

@@ -24,6 +24,8 @@ from app.services.webhooks import (
 )
 from liveness.api.worker import process_check
 from liveness.ml.document_types import normalize_document_type
+from liveness.ml.quality import decode_image
+from liveness.ml.selfie_profile import validate_selfie_profile
 from liveness.storage import BlobStore
 
 router = APIRouter(tags=["dashboard"])
@@ -899,6 +901,21 @@ async def upload_verification_live_photo(token: str, file: UploadFile = File(...
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty live photo file")
+    try:
+        image = decode_image(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid image file") from exc
+
+    profile = validate_selfie_profile(image)
+    if not profile.passed:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Selfie profile check failed. Fix the issues below and upload again.",
+                "profile_validation": profile.to_dict(),
+            },
+        )
+
     photo_id = new_id("pho_")
     key = f"live_photos/{photo_id}/{file.filename or 'selfie.jpg'}"
     BlobStore().put(key, data)
@@ -947,6 +964,7 @@ async def upload_verification_live_photo(token: str, file: UploadFile = File(...
 
     out = serialize(photo) or photo
     out["url"] = _verification_media_url(token, "live-photo")
+    out["profile_validation"] = profile.to_dict()
     return out
 
 

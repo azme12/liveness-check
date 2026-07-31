@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     openface_max_yaw: float = 25.0
     openface_max_pitch: float = 20.0
     openface_min_certainty: float = 0.5
+    # Strict live-selfie profile gate (glasses, background, blur, etc.)
+    selfie_min_face_area_ratio: float = 0.14
+    selfie_min_blur_laplacian: float = 90.0
 
 
 @lru_cache

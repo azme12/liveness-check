@@ -8,6 +8,7 @@ import { Badge, Panel } from "@/components/AppShell";
 import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
 import { verifyUrl } from "@/lib/verifyApi";
+import { parseUploadDetail, type ProfileValidation } from "@/lib/uploadErrors";
 import { cn, formatDate } from "@/lib/format";
 
 type Client = {
@@ -117,6 +118,7 @@ export default function ClientDetailPage() {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [profileValidation, setProfileValidation] = useState<ProfileValidation | null>(null);
   const [liveChecks, setLiveChecks] = useState<Check[]>([]);
   const [verifyMedia, setVerifyMedia] = useState<{
     document?: { url: string; document_type?: string | null } | null;
@@ -269,6 +271,7 @@ export default function ClientDetailPage() {
     setUploadBusy(true);
     setUploadError("");
     setUploadMessage("");
+    if (kind === "live-photo") setProfileValidation(null);
     try {
       const form = new FormData();
       form.append("file", file);
@@ -280,9 +283,20 @@ export default function ClientDetailPage() {
         method: "POST",
         body: form,
       });
+      const payload = (await res.json().catch(() => null)) as {
+        detail?: unknown;
+        profile_validation?: ProfileValidation;
+      } | null;
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.detail || `Upload failed (${kind})`);
+        const parsed = parseUploadDetail(payload?.detail);
+        if (kind === "live-photo" && parsed.profileValidation) {
+          setProfileValidation(parsed.profileValidation);
+          setVerifyMedia((m) => (m ? { ...m, live_photo: null } : m));
+        }
+        throw new Error(parsed.message);
+      }
+      if (kind === "live-photo" && payload?.profile_validation) {
+        setProfileValidation(payload.profile_validation);
       }
       await refreshVerifyChecks();
       setUploadMessage(
@@ -603,15 +617,33 @@ export default function ClientDetailPage() {
                         </button>
                       ) : null}
                     </div>
-                    {verifyMedia?.live_photo?.url ? (
+                    {verifyMedia?.live_photo?.url && profileValidation?.passed !== false ? (
                       <div className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-2 text-xs">
-                        <div className="text-[var(--accent)]">Selfie uploaded</div>
+                        <div className="text-[var(--accent)]">Selfie profile passed — matching document…</div>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={verifyUrl(verifyMedia.live_photo.url)}
                           alt="Uploaded selfie"
                           className="mt-2 max-h-32 w-full rounded object-contain"
                         />
+                      </div>
+                    ) : null}
+                    {profileValidation && !profileValidation.passed ? (
+                      <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-300">
+                        <div className="font-semibold text-red-400">Selfie profile failed — upload again</div>
+                        <ul className="mt-2 list-inside list-disc space-y-1">
+                          {(profileValidation.messages || profileValidation.issues || []).map((msg) => (
+                            <li key={msg}>{msg}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-[10px] text-red-400/80">
+                          Plain background, no glasses, full face visible, good lighting, hold steady.
+                        </p>
+                      </div>
+                    ) : null}
+                    {profileValidation?.passed ? (
+                      <div className="rounded-lg border border-green-500/40 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+                        Selfie profile check passed.
                       </div>
                     ) : null}
                     <div className="rounded-lg border border-dashed border-[var(--border)] p-3">
@@ -646,7 +678,7 @@ export default function ClientDetailPage() {
                       ) : null}
                     </div>
                     <p className="text-[10px] text-[var(--muted)]">
-                      Pick a photo — it uploads automatically after you choose a file.
+                      Selfie only: plain background, no glasses, face centered. Document has no profile check.
                     </p>
                     {uploadError ? <div className="text-xs text-red-400">{uploadError}</div> : null}
                     {uploadMessage ? <div className="text-xs text-[var(--accent)]">{uploadMessage}</div> : null}
