@@ -7,7 +7,7 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /health
-    healthCheckGracePeriod: 120
+    healthCheckGracePeriod: 180
     envVars:
       - key: LIVENCUBE_MONGODB_URL
         sync: false
@@ -17,9 +17,17 @@ services:
         generateValue: true
       - key: LIVENCUBE_CORS_ORIGINS
         sync: false
+      # Absolute URLs in webhooks (picture/selfie links for CBE etc.)
+      - key: LIVENCUBE_PUBLIC_API_URL
+        sync: false
       - key: LIVENESS_MONGODB_URL
         sync: false
       - key: LIVENESS_MONGODB_DB
         value: liveness
       - key: LIVENESS_ALLOW_HEURISTIC_FALLBACK
         value: "true"
+      # OpenFace CLI is not shipped in Docker — use InsightFace pose + bbox proxy on Render.
+      - key: LIVENESS_OPENFACE_AUTO_DETECT
+        value: "false"
+      - key: LIVENESS_OPENFACE_ENABLED
+        value: "false"
