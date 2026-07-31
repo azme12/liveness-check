@@ -29,13 +29,17 @@ async def lifespan(_: FastAPI):
     if get_settings().seed_demo:
         await seed_if_empty()
     start_webhook_worker()
-    # Warm face model once so uploads don't reload InsightFace per request (OOM on Render).
-    try:
-        from liveness.ml.face import get_face_analyzer
 
-        get_face_analyzer()
-    except Exception:
-        pass
+    def _warm_face_model() -> None:
+        try:
+            from liveness.ml.face import get_face_analyzer
+
+            get_face_analyzer()
+        except Exception:
+            pass
+
+    # Do not block startup — InsightFace load can take 60s+ on Render free CPU.
+    threading.Thread(target=_warm_face_model, daemon=True).start()
     yield
     stop_webhook_worker()
     await close_dashboard_db()
