@@ -689,6 +689,7 @@ async def create_session(
         "method": method,
         "delivery_email": body.get("delivery_email") or client.get("email"),
         "share_token": token,
+        "token": token,
         "stages": _verification_stages(workflow_steps),
         "current_stage": "consent",
         "status": "invited",

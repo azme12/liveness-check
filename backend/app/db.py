@@ -18,6 +18,24 @@ def get_database() -> AsyncIOMotorDatabase:
     return get_client()[get_settings().mongodb_db]
 
 
+async def _ensure_session_token_indexes(db) -> None:
+    """Dashboard sessions use share_token; legacy index on token breaks second insert (null dup key)."""
+    await db.sessions.update_many(
+        {
+            "share_token": {"$exists": True, "$type": "string", "$ne": ""},
+            "$or": [{"token": {"$exists": False}}, {"token": None}],
+        },
+        [{"$set": {"token": "$share_token"}}],
+    )
+    for name in ("token_1", "share_token_1"):
+        try:
+            await db.sessions.drop_index(name)
+        except Exception:
+            pass
+    await db.sessions.create_index("token", unique=True, sparse=True)
+    await db.sessions.create_index("share_token", unique=True, sparse=True)
+
+
 async def init_db() -> None:
     db = get_database()
     await db.users.create_index("email", unique=True)
@@ -29,6 +47,7 @@ async def init_db() -> None:
     await db.clients.create_index([("org_id", 1), ("created_at", -1)])
     await db.checks.create_index("id", unique=True)
     await db.sessions.create_index("id", unique=True)
+    await _ensure_session_token_indexes(db)
     await db.workflows.create_index("id", unique=True)
     await db.api_keys.create_index("id", unique=True)
     await db.allowed_ips.create_index("id", unique=True)

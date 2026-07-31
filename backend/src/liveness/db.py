@@ -39,7 +39,13 @@ async def init_db() -> None:
     await db.checks.create_index("id", unique=True)
     await db.checks.create_index([("client_id", 1), ("created_at", -1)])
     await db.sessions.create_index("id", unique=True)
-    await db.sessions.create_index("token", unique=True)
+    for name in ("token_1", "share_token_1"):
+        try:
+            await db.sessions.drop_index(name)
+        except Exception:
+            pass
+    await db.sessions.create_index("token", unique=True, sparse=True)
+    await db.sessions.create_index("share_token", unique=True, sparse=True)
     await db.face_embeddings.create_index("id", unique=True)
     await db.face_embeddings.create_index("client_id")
 

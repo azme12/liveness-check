@@ -309,7 +309,10 @@ async def create_session(
 
 
 async def _session_by_token(db: AsyncIOMotorDatabase, token: str) -> dict[str, Any]:
-    sess = await db.sessions.find_one({"token": token}, {"_id": 0})
+    sess = await db.sessions.find_one(
+        {"$or": [{"token": token}, {"share_token": token}]},
+        {"_id": 0},
+    )
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
     if sess["expires_at"] < utc_now():

@@ -108,6 +108,7 @@ export default function ClientDetailPage() {
   const [method, setMethod] = useState<"upload" | "email" | "link" | "phone">("upload");
   const [deliveryEmail, setDeliveryEmail] = useState("");
   const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState("");
   const [startResult, setStartResult] = useState<StartResponse | null>(null);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [documentType, setDocumentType] = useState("fayda");
@@ -149,6 +150,7 @@ export default function ClientDetailPage() {
   async function openStart() {
     setStartOpen(true);
     setStartResult(null);
+    setStartError("");
     setConsentAccepted(false);
     setDocumentFile(null);
     setLivePhotoFile(null);
@@ -174,6 +176,7 @@ export default function ClientDetailPage() {
 
   async function startVerification() {
     setStarting(true);
+    setStartError("");
     try {
       const res = await api<StartResponse>("/api/sessions", {
         method: "POST",
@@ -208,6 +211,7 @@ export default function ClientDetailPage() {
         )}&body=${encodeURIComponent(`Open this secure verification link:\n\n${inviteLink}`)}`;
       }
     } catch (err) {
+      setStartError(err instanceof Error ? err.message : "Failed to create verification session");
       console.error(err);
     } finally {
       setStarting(false);
@@ -466,6 +470,11 @@ export default function ClientDetailPage() {
                       type="email"
                     />
                   </label>
+                ) : null}
+                {startError ? (
+                  <p className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+                    {startError}
+                  </p>
                 ) : null}
                 <button
                   type="button"
