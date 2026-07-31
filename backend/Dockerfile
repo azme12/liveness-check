@@ -26,7 +26,9 @@ COPY tests ./tests
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
     && pip install -e . \
-    && mkdir -p /app/storage /app/models
+    && mkdir -p /app/storage /app/models \
+    && curl -fsSL -o /app/models/face_detection_yunet_2023mar.onnx \
+      "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
 
 EXPOSE 8100
 
