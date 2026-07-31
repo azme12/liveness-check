@@ -10,6 +10,7 @@ import numpy as np
 from liveness.config import Settings, get_settings
 from liveness.ml import DocumentOcr, FaceAnalyzer, LivenessDetector, OpenFaceAnalyzer, assess_quality
 from liveness.ml.document_types import resolve_document_type
+from liveness.ml.partner_format import build_identity_result_breakdown
 from liveness.ml.scores import enrich_verification_scores
 from liveness.types import (
     BiometricResult,
@@ -183,18 +184,6 @@ class CheckEngine:
         if match and not match.face_detected_b:
             explain.append("no_face_on_selfie")
 
-        scores = _identity_scores(document=doc_result.document, biometric=biometric)
-        signals = {
-            "scores": scores,
-            "active_liveness": {
-                "passed": active.passed,
-                "backend": active.backend,
-                "head_pose_yaw": active.head_pose_yaw,
-                "head_pose_pitch": active.head_pose_pitch,
-                "detection_certainty": active.detection_certainty,
-            },
-        }
-
         if (
             doc_result.outcome == CheckOutcome.REJECT
             or live.label != "live"
@@ -206,6 +195,24 @@ class CheckEngine:
             outcome = CheckOutcome.CONSIDER
         else:
             outcome = CheckOutcome.CLEAR
+
+        scores = _identity_scores(document=doc_result.document, biometric=biometric)
+        breakdown = build_identity_result_breakdown(
+            scores,
+            outcome=outcome.value,
+            face_detected=bool(faces),
+        )
+        signals = {
+            "scores": scores,
+            "complycube": breakdown,
+            "active_liveness": {
+                "passed": active.passed,
+                "backend": active.backend,
+                "head_pose_yaw": active.head_pose_yaw,
+                "head_pose_pitch": active.head_pose_pitch,
+                "detection_certainty": active.detection_certainty,
+            },
+        }
 
         versions = dict(doc_result.model_versions)
         versions["liveness"] = live.backend

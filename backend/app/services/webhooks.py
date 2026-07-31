@@ -14,6 +14,7 @@ import httpx
 
 from app.db import get_database
 from app.services.seed import new_id, serialize, utcnow
+from app.services.verification_response import build_partner_verification_response
 from app.services.webhook_events import (
     MAX_ATTEMPTS,
     RETRY_DELAYS_SECONDS,
@@ -379,7 +380,29 @@ def _build_check_webhook_payload(check: dict[str, Any]) -> dict[str, Any]:
     }
     if result:
         payload["result"] = result
+    if (check.get("type") or "") == "identity_check" and outcome:
+        scores_enriched = enrich_verification_scores(scores)
+        payload["identity_check"] = {
+            "type": "identity_check",
+            "status": check.get("status"),
+            "outcome": outcome,
+            "result": build_identity_breakdown_for_payload(scores_enriched, str(outcome), scores),
+        }
     return payload
+
+
+def build_identity_breakdown_for_payload(
+    scores_enriched: dict[str, Any],
+    outcome: str,
+    scores: dict[str, Any],
+) -> dict[str, Any]:
+    from liveness.ml.partner_format import build_identity_result_breakdown
+
+    return build_identity_result_breakdown(
+        scores_enriched,
+        outcome=outcome.lower(),
+        face_detected=bool(scores.get("face_detected", scores_enriched.get("face_detected", True))),
+    )
 
 
 async def emit_check_lifecycle(org_id: str, check: dict[str, Any], event_type: str) -> None:
@@ -418,7 +441,8 @@ async def build_verification_result_payload(session_id: str) -> dict[str, Any] |
         summary_outcome = "reject"
     elif any(o == "consider" for o in outcomes):
         summary_outcome = "consider"
-    return {
+    partner = await build_partner_verification_response(session_id)
+    base = {
         "session_id": session_id,
         "client_id": session.get("client_id"),
         "client_name": session.get("client_name"),
@@ -436,6 +460,23 @@ async def build_verification_result_payload(session_id: str) -> dict[str, Any] |
         "checks": check_payloads,
         "completed_at": session.get("completed_at") or session.get("updated_at"),
     }
+    if partner:
+        base.update(
+            {
+                "full_name": partner.get("full_name"),
+                "picture": partner.get("picture"),
+                "selfie_photo": partner.get("selfie_photo"),
+                "document_front": partner.get("document_front"),
+                "complycube": partner.get("complycube"),
+                "status": partner.get("status"),
+                "outcome": partner.get("outcome"),
+                "facial_score": partner.get("facial_score"),
+                "liveness_score": partner.get("liveness_score"),
+                "facialSimilarityScore": partner.get("facialSimilarityScore"),
+                "livenessCheckScore": partner.get("livenessCheckScore"),
+            }
+        )
+    return base
 
 
 async def emit_verification_completed(org_id: str, session_id: str) -> None:

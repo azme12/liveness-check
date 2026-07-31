@@ -31,6 +31,29 @@ type SessionData = {
   } | null;
   document?: MediaAsset | null;
   live_photo?: MediaAsset | null;
+  verification_response?: {
+    status?: string;
+    outcome?: string;
+    facial_score?: number;
+    liveness_score?: number;
+    facialSimilarityScore?: number;
+    livenessCheckScore?: number;
+    full_name?: string;
+    picture?: string | null;
+    selfie_photo?: string | null;
+    complycube?: {
+      identity_outcome?: string;
+      identity_status?: string;
+      identity_check?: {
+        result?: {
+          breakdown?: {
+            faceAnalysis?: { breakdown?: { facialSimilarityScore?: number } };
+            authenticityAnalysis?: { breakdown?: { livenessCheckScore?: number } };
+          };
+        };
+      };
+    };
+  } | null;
   checks: Array<{
     id: string;
     label?: string;
@@ -296,6 +319,38 @@ function VerifyHostedInner() {
             );})}
           </div>
         </div>
+
+        {data.verification_response ? (
+          <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-6 text-sm text-green-950">
+            <h2 className="text-lg font-semibold text-green-800">Verification result</h2>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div>
+                <span className="font-medium">Status:</span> {data.verification_response.status || "—"}
+              </div>
+              <div>
+                <span className="font-medium">Outcome:</span> {data.verification_response.outcome || "—"}
+              </div>
+              <div>
+                <span className="font-medium">Facial similarity:</span>{" "}
+                {data.verification_response.facialSimilarityScore ??
+                  data.verification_response.facial_score ??
+                  "—"}
+              </div>
+              <div>
+                <span className="font-medium">Liveness:</span>{" "}
+                {data.verification_response.livenessCheckScore ??
+                  data.verification_response.liveness_score ??
+                  "—"}
+              </div>
+            </div>
+            <details className="mt-4">
+              <summary className="cursor-pointer font-medium text-green-800">Full partner JSON</summary>
+              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-3 text-xs text-neutral-800">
+                {JSON.stringify(data.verification_response, null, 2)}
+              </pre>
+            </details>
+          </div>
+        ) : null}
       </div>
     </div>
   );

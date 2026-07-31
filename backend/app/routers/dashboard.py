@@ -14,6 +14,7 @@ from app.deps import get_current_user
 from app.schemas import ClientBulkDelete, ClientCreate, WorkflowCreate, WorkflowVersionUpdate
 from app.services.environment import environment_query, with_org_env
 from app.services.seed import new_id, serialize, utcnow
+from app.services.verification_response import build_partner_verification_response
 from app.services.webhooks import (
     emit_check_lifecycle,
     emit_client_created,
@@ -798,12 +799,14 @@ async def get_verification_session(token: str):
     client = await db.clients.find_one({"id": session["client_id"]}, {"_id": 0})
     checks = await db.checks.find({"session_id": session["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
     document, live_photo = await _attach_verification_media(db, session)
+    verification_response = await build_partner_verification_response(session["id"])
     return {
         "session": serialize(session),
         "client": serialize(client),
         "checks": [serialize(c) for c in checks],
         "document": document,
         "live_photo": live_photo,
+        "verification_response": verification_response,
     }
 
 

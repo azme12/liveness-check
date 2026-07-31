@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     jwt_expire_hours: int = 72
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     verification_api_url: str = "http://127.0.0.1:8000"
+    # Public API base for absolute media URLs in partner webhooks (e.g. Render URL).
+    public_api_url: str = ""
     verification_api_key: str = "sk_test_liveness_dev"
     # When true, empty DB gets demo admin + sample data (local only). Production: leave false.
     seed_demo: bool = False
