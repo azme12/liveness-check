@@ -12,7 +12,7 @@ from app.deps import get_current_user
 from app.schemas import AllowedIpCreate, WebhookCreate, WebhookUpdate
 from app.services.seed import new_id, serialize, utcnow
 from app.services.webhook_events import WEBHOOK_EVENT_TYPES, validate_events
-from app.services.webhooks import emit_event
+from app.services.webhooks import emit_event, emit_event_to_webhook
 
 router = APIRouter(prefix="/integration", tags=["integration"])
 
@@ -137,8 +137,19 @@ async def webhook_event_types(_: dict = Depends(get_current_user)):
 
 @router.get("/webhooks")
 async def list_webhooks(user: dict = Depends(get_current_user)):
-    items = await get_database().webhooks.find({"org_id": user["org_id"]}, {"_id": 0}).sort("updated_at", -1).to_list(50)
-    return {"items": [serialize(i) for i in items]}
+    db = get_database()
+    items = await db.webhooks.find({"org_id": user["org_id"]}, {"_id": 0}).sort("updated_at", -1).to_list(50)
+    out = []
+    for wh in items:
+        row = serialize(wh) or wh
+        last = await db.webhook_deliveries.find_one(
+            {"webhook_id": wh["id"]},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+        row["last_delivery"] = serialize(last) if last else None
+        out.append(row)
+    return {"items": out}
 
 
 @router.get("/webhooks/{webhook_id}")
@@ -226,39 +237,58 @@ async def test_webhook(webhook_id: str, user: dict = Depends(get_current_user)):
     wh = await get_database().webhooks.find_one({"id": webhook_id, "org_id": user["org_id"]}, {"_id": 0})
     if not wh:
         raise HTTPException(status_code=404, detail="Webhook not found")
-    event = await emit_event(
-        user["org_id"],
-        "check.completed",
-        {
-            "id": new_id("chk_"),
-            "status": "complete",
+    sample_scores = {
+        "document_type": "fayda",
+        "document_quality": 0.87,
+        "liveness_score": 0.91,
+        "liveness_passed": True,
+        "face_match_score": 0.84,
+        "face_match_passed": True,
+    }
+    check_payload = {
+        "id": new_id("chk_"),
+        "status": "complete",
+        "outcome": "clear",
+        "type": "identity_check",
+        "client_id": "cli_test",
+        "session_id": "ses_test",
+        "scores": sample_scores,
+        "verification": {
             "outcome": "clear",
-            "type": "identity_check",
-            "client_id": "cli_test",
-            "session_id": "ses_test",
-            "scores": {
-                "document_type": "fayda",
-                "document_quality": 0.87,
+            **sample_scores,
+            "passed": True,
+        },
+        "result": {
+            "outcome": "clear",
+            "biometric": {
+                "liveness": "live",
                 "liveness_score": 0.91,
-                "liveness_passed": True,
                 "face_match_score": 0.84,
                 "face_match_passed": True,
             },
-            "result": {
-                "outcome": "clear",
-                "biometric": {
-                    "liveness": "live",
-                    "liveness_score": 0.91,
-                    "face_match_score": 0.84,
-                    "face_match_passed": True,
-                },
-                "document": {"document_type": "fayda", "quality_score": 0.87},
-            },
-            "note": "Trustanova test webhook delivery",
+            "document": {"document_type": "fayda", "quality_score": 0.87},
         },
-        resource_type="checks",
+        "note": "Trustanova test webhook delivery",
+    }
+    session_payload = {
+        "session_id": "ses_test",
+        "client_id": "cli_test",
+        "status": "completed",
+        "scores": sample_scores,
+        "verification": check_payload["verification"],
+        "summary": {"outcome": "clear", "checks_total": 1, "checks_complete": 1},
+        "checks": [check_payload],
+        "note": "Trustanova test session webhook delivery",
+    }
+    check_result = await emit_event_to_webhook(wh, "check.completed", check_payload, resource_type="checks")
+    session_result = await emit_event_to_webhook(
+        wh, "workflow.session.completed", session_payload, resource_type="sessions"
     )
-    return {"ok": True, "event": event}
+    return {
+        "ok": True,
+        "url": wh["url"],
+        "deliveries": [check_result["delivery"], session_result["delivery"]],
+    }
 
 
 @router.get("/events")

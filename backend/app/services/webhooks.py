@@ -79,6 +79,50 @@ async def emit_event(
     return serialize(event) or event
 
 
+async def emit_event_to_webhook(
+    webhook: dict[str, Any],
+    event_type: str,
+    payload: dict[str, Any],
+    *,
+    resource_type: str | None = None,
+) -> dict[str, Any]:
+    """Create an event and deliver synchronously to one webhook (used for tests)."""
+    db = get_database()
+    now = utcnow()
+    rtype = resource_type or resource_type_for_event(event_type)
+    event = {
+        "id": new_id("evt_"),
+        "org_id": webhook["org_id"],
+        "type": event_type,
+        "event_type": event_type,
+        "resourceType": rtype,
+        "resource_type": rtype,
+        "payload": payload,
+        "created_at": now,
+        "createdAt": now.isoformat(),
+    }
+    await db.events.insert_one(event)
+    delivery = {
+        "id": new_id("dlv_"),
+        "org_id": webhook["org_id"],
+        "webhook_id": webhook["id"],
+        "event_id": event["id"],
+        "event_type": event_type,
+        "url": webhook["url"],
+        "attempt": 1,
+        "status": "sending",
+        "next_attempt_at": now,
+        "created_at": now,
+    }
+    await db.webhook_deliveries.insert_one(delivery)
+    await _deliver_now(delivery["id"])
+    updated = await db.webhook_deliveries.find_one({"id": delivery["id"]}, {"_id": 0})
+    return {
+        "event": serialize(event) or event,
+        "delivery": serialize(updated) or updated,
+    }
+
+
 async def _queue_delivery(webhook: dict[str, Any], event: dict[str, Any], attempt: int) -> None:
     db = get_database()
     delivery = {
@@ -296,19 +340,35 @@ def _extract_check_scores(check: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _verification_summary(scores: dict[str, Any], outcome: str | None = None) -> dict[str, Any]:
+    """Flat summary for partner APIs (e.g. CBE webhook consumers)."""
+    return {
+        "outcome": outcome,
+        "document_type": scores.get("document_type"),
+        "document_quality": scores.get("document_quality"),
+        "liveness_score": scores.get("liveness_score"),
+        "liveness_passed": scores.get("liveness_passed"),
+        "face_match_score": scores.get("face_match_score"),
+        "face_match_passed": scores.get("face_match_passed"),
+        "passed": bool(scores.get("face_match_passed")) and bool(scores.get("liveness_passed")),
+    }
+
+
 def _build_check_webhook_payload(check: dict[str, Any]) -> dict[str, Any]:
     result = check.get("result") if isinstance(check.get("result"), dict) else None
     scores = _extract_check_scores(check)
+    outcome = check.get("outcome")
     payload = {
         "id": check.get("id"),
         "status": check.get("status"),
-        "outcome": check.get("outcome"),
+        "outcome": outcome,
         "type": check.get("type"),
         "client_id": check.get("client_id"),
         "session_id": check.get("session_id"),
         "document_id": check.get("document_id"),
         "live_photo_id": check.get("live_photo_id"),
         "scores": scores,
+        "verification": _verification_summary(scores, str(outcome) if outcome else None),
         "createdAt": check.get("created_at"),
         "updatedAt": check.get("updated_at") or check.get("completed_at"),
     }
@@ -367,6 +427,7 @@ async def build_verification_result_payload(session_id: str) -> dict[str, Any] |
             "checks_complete": sum(1 for c in checks if (c.get("status") or "").lower() == "complete"),
         },
         "scores": scores,
+        "verification": _verification_summary(scores, summary_outcome),
         "checks": check_payloads,
         "completed_at": session.get("completed_at") or session.get("updated_at"),
     }

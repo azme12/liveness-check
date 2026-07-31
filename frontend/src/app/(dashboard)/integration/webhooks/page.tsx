@@ -16,12 +16,20 @@ type Webhook = {
   events: string[];
   description?: string;
   updated_at: string;
+  last_delivery?: {
+    status?: string;
+    http_status?: number;
+    error?: string;
+    event_type?: string;
+    finished_at?: string;
+    created_at?: string;
+  } | null;
 };
 
 const DEFAULT_EVENTS = [
   "check.completed",
-  "check.completed.clear",
   "check.failed",
+  "check.updated",
   "workflow.session.completed",
 ];
 
@@ -35,6 +43,7 @@ export default function WebhooksPage() {
   const [eventsOpen, setEventsOpen] = useState(false);
   const [eventQuery, setEventQuery] = useState("");
   const [error, setError] = useState("");
+  const [testMsg, setTestMsg] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -113,6 +122,25 @@ export default function WebhooksPage() {
     }
   }
 
+  async function sendTest(webhookId: string) {
+    setTestMsg("");
+    try {
+      const res = await api<{
+        ok: boolean;
+        url: string;
+        deliveries: Array<{ status?: string; http_status?: number; error?: string; event_type?: string }>;
+      }>(`/api/integration/webhooks/${webhookId}/test`, { method: "POST" });
+      const lines = (res.deliveries || []).map(
+        (d) =>
+          `${d.event_type || "event"} → ${d.status}${d.http_status ? ` (${d.http_status})` : ""}${d.error ? `: ${d.error}` : ""}`,
+      );
+      setTestMsg(`Test sent to ${res.url}. ${lines.join(" · ")}`);
+      await load();
+    } catch (err) {
+      setTestMsg(err instanceof Error ? err.message : "Test delivery failed");
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -128,6 +156,9 @@ export default function WebhooksPage() {
         }
       />
       <EnvBanner noun="webhooks" />
+      {testMsg ? (
+        <Panel className="mb-4 px-4 py-3 text-sm text-[var(--accent)]">{testMsg}</Panel>
+      ) : null}
       <Panel className="mb-4 flex flex-wrap items-center justify-end gap-3 px-4 py-3 text-sm text-[var(--muted)]">
         <button
           onClick={() => setReveal((v) => !v)}
@@ -175,8 +206,29 @@ export default function WebhooksPage() {
                 <div className="mt-1 font-mono text-xs text-[var(--muted)]">
                   Secret: {reveal ? wh.secret : "••••••••••••••••"}
                 </div>
+                {wh.last_delivery ? (
+                  <div className="mt-2 text-xs text-[var(--muted)]">
+                    Last delivery:{" "}
+                    <span className={wh.last_delivery.status === "succeeded" ? "text-[var(--success)]" : "text-[var(--warning)]"}>
+                      {wh.last_delivery.status || "pending"}
+                    </span>
+                    {wh.last_delivery.http_status ? ` · HTTP ${wh.last_delivery.http_status}` : ""}
+                    {wh.last_delivery.event_type ? ` · ${wh.last_delivery.event_type}` : ""}
+                    {wh.last_delivery.error ? ` · ${wh.last_delivery.error}` : ""}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs text-[var(--muted)]">No deliveries yet — run a verification or send a test.</div>
+                )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => sendTest(wh.id)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)]"
+                >
+                  Send test
+                </button>
+                <div className="flex items-center gap-2">
                 <Badge tone={wh.enabled ? "success" : "neutral"}>
                   {wh.enabled ? "Enabled" : "Disabled"}
                 </Badge>
@@ -192,6 +244,7 @@ export default function WebhooksPage() {
                 >
                   <MoreHorizontal size={16} />
                 </button>
+                </div>
               </div>
             </div>
           </Panel>

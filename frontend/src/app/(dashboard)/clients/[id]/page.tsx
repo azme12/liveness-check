@@ -258,7 +258,7 @@ export default function ClientDetailPage() {
       setUploadMessage(
         kind === "document"
           ? "Document uploaded. Now upload a selfie to run liveness + face match."
-          : "Selfie uploaded. Scores are ready — webhooks fire to your Integration → Webhooks URL.",
+          : "Selfie uploaded. Scores ready — webhook POST sent to your configured URL. Check Integration → Events.",
       );
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
