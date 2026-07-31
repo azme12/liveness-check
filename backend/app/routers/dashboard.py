@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pymongo import ReturnDocument
 
 from app.db import get_database
@@ -230,6 +231,50 @@ def _next_stage(stages: list[str], stage: str) -> str:
         return stages[idx + 1] if idx + 1 < len(stages) else "complete"
     except ValueError:
         return "complete"
+
+
+def _media_content_type(storage_key: str) -> str:
+    lower = (storage_key or "").lower()
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    if lower.endswith(".gif"):
+        return "image/gif"
+    return "image/jpeg"
+
+
+async def _verification_media_row(db, session: dict, kind: str) -> dict | None:
+    if kind == "document":
+        doc_id = session.get("document_id")
+        if not doc_id:
+            return None
+        return await db.documents.find_one({"id": doc_id, "session_id": session["id"]}, {"_id": 0})
+    if kind == "live-photo":
+        photo_id = session.get("live_photo_id")
+        if not photo_id:
+            return None
+        return await db.live_photos.find_one({"id": photo_id, "session_id": session["id"]}, {"_id": 0})
+    return None
+
+
+def _verification_media_url(token: str, kind: str) -> str:
+    return f"/api/verify/{token}/media/{kind}"
+
+
+async def _attach_verification_media(db, session: dict) -> tuple[dict | None, dict | None]:
+    token = session.get("share_token") or session.get("token") or ""
+    document = await _verification_media_row(db, session, "document")
+    live_photo = await _verification_media_row(db, session, "live-photo")
+    doc_out = None
+    photo_out = None
+    if document:
+        doc_out = serialize(document) or document
+        doc_out["url"] = _verification_media_url(token, "document")
+    if live_photo:
+        photo_out = serialize(live_photo) or live_photo
+        photo_out["url"] = _verification_media_url(token, "live-photo")
+    return doc_out, photo_out
 
 
 @router.get("/overview")
@@ -752,11 +797,32 @@ async def get_verification_session(token: str):
         raise HTTPException(status_code=404, detail="Verification session not found")
     client = await db.clients.find_one({"id": session["client_id"]}, {"_id": 0})
     checks = await db.checks.find({"session_id": session["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    document, live_photo = await _attach_verification_media(db, session)
     return {
         "session": serialize(session),
         "client": serialize(client),
         "checks": [serialize(c) for c in checks],
+        "document": document,
+        "live_photo": live_photo,
     }
+
+
+@router.get("/verify/{token}/media/{kind}")
+async def get_verification_media(token: str, kind: str):
+    if kind not in {"document", "live-photo"}:
+        raise HTTPException(status_code=404, detail="Media not found")
+    db = get_database()
+    session = await db.sessions.find_one({"share_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Verification session not found")
+    row = await _verification_media_row(db, session, kind)
+    if not row or not row.get("storage_key"):
+        raise HTTPException(status_code=404, detail="Media not found")
+    try:
+        data = BlobStore().get(row["storage_key"])
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Media file missing") from exc
+    return Response(content=data, media_type=_media_content_type(row["storage_key"]))
 
 
 @router.post("/verify/{token}/document")
@@ -804,7 +870,21 @@ async def upload_verification_document(
         )
     except HTTPException:
         pass
-    return serialize(document)
+    stages = session.get("stages") or ["consent", "document", "face", "complete"]
+    next_stage = _next_stage(stages, "document")
+    await db.sessions.update_one(
+        {"id": session["id"]},
+        {
+            "$set": {
+                "current_stage": next_stage,
+                "status": "in_progress",
+                "updated_at": utcnow(),
+            }
+        },
+    )
+    out = serialize(document) or document
+    out["url"] = _verification_media_url(token, "document")
+    return out
 
 
 @router.post("/verify/{token}/live-photo")
@@ -862,7 +942,9 @@ async def upload_verification_live_photo(token: str, file: UploadFile = File(...
         except HTTPException:
             pass
 
-    return serialize(photo)
+    out = serialize(photo) or photo
+    out["url"] = _verification_media_url(token, "live-photo")
+    return out
 
 
 @router.post("/verify/{token}/progress")

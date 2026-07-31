@@ -118,6 +118,10 @@ export default function ClientDetailPage() {
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [liveChecks, setLiveChecks] = useState<Check[]>([]);
+  const [verifyMedia, setVerifyMedia] = useState<{
+    document?: { url: string; document_type?: string | null } | null;
+    live_photo?: { url: string } | null;
+  } | null>(null);
 
   const loadClient = useCallback(() => {
     api<Client>(`/api/clients/${params.id}`)
@@ -224,8 +228,13 @@ export default function ClientDetailPage() {
     if (!verifyToken) return;
     const res = await fetch(verifyUrl(`/api/verify/${verifyToken}`), { cache: "no-store" });
     if (!res.ok) return;
-    const data = (await res.json()) as { checks?: Check[] };
+    const data = (await res.json()) as {
+      checks?: Check[];
+      document?: { url: string; document_type?: string | null } | null;
+      live_photo?: { url: string } | null;
+    };
     setLiveChecks(data.checks || []);
+    setVerifyMedia({ document: data.document, live_photo: data.live_photo });
     api<Paginated<Check>>(`/api/clients/${params.id}/checks?page=1&page_size=10`)
       .then(setChecks)
       .catch(console.error);
@@ -517,6 +526,17 @@ export default function ClientDetailPage() {
                         <option value="driving_license">Driving license</option>
                       </select>
                     </label>
+                    {verifyMedia?.document?.url ? (
+                      <div className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-2 text-xs">
+                        <div className="text-[var(--accent)]">Document uploaded — used on verify page</div>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={verifyUrl(verifyMedia.document.url)}
+                          alt="Uploaded document"
+                          className="mt-2 max-h-32 w-full rounded object-contain"
+                        />
+                      </div>
+                    ) : null}
                     <label className="block rounded-lg border border-dashed border-[var(--border)] p-3">
                       <span className="text-xs text-[var(--muted)]">1. Document photo (ID / passport)</span>
                       <input
@@ -534,6 +554,17 @@ export default function ClientDetailPage() {
                         {uploadBusy ? "Uploading…" : "Upload document"}
                       </button>
                     </label>
+                    {verifyMedia?.live_photo?.url ? (
+                      <div className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-2 text-xs">
+                        <div className="text-[var(--accent)]">Selfie uploaded — used on verify page</div>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={verifyUrl(verifyMedia.live_photo.url)}
+                          alt="Uploaded selfie"
+                          className="mt-2 max-h-32 w-full rounded object-contain"
+                        />
+                      </div>
+                    ) : null}
                     <label className="block rounded-lg border border-dashed border-[var(--border)] p-3">
                       <span className="text-xs text-[var(--muted)]">2. Selfie / live photo</span>
                       <input

@@ -4,6 +4,14 @@ import { useParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { verifyUrl } from "@/lib/verifyApi";
 
+type MediaAsset = {
+  id: string;
+  url: string;
+  document_type?: string | null;
+  issuing_country?: string | null;
+  status?: string;
+};
+
 type SessionData = {
   session: {
     id: string;
@@ -21,6 +29,8 @@ type SessionData = {
     name?: string;
     email?: string;
   } | null;
+  document?: MediaAsset | null;
+  live_photo?: MediaAsset | null;
   checks: Array<{
     id: string;
     label?: string;
@@ -55,7 +65,10 @@ function VerifyHostedInner() {
     try {
       const res = await fetch(verifyUrl(`/api/verify/${params.token}`), { cache: "no-store" });
       if (!res.ok) throw new Error("Verification session not found");
-      setData((await res.json()) as SessionData);
+      const json = (await res.json()) as SessionData;
+      setData(json);
+      if (json.document?.document_type) setDocumentType(json.document.document_type);
+      if (json.document?.issuing_country) setCountry(json.document.issuing_country);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load verification");
       setData(null);
@@ -195,6 +208,8 @@ function VerifyHostedInner() {
 
           <StageCard
             session={data.session}
+            document={data.document}
+            livePhoto={data.live_photo}
             currentStage={currentStage}
             busy={busy}
             country={country}
@@ -274,6 +289,8 @@ export default function VerifyHostedPage() {
 
 function StageCard({
   session,
+  document,
+  livePhoto,
   currentStage,
   busy,
   country,
@@ -293,6 +310,8 @@ function StageCard({
   completed,
 }: {
   session: SessionData["session"];
+  document?: MediaAsset | null;
+  livePhoto?: MediaAsset | null;
   currentStage: string;
   busy: boolean;
   country: string;
@@ -335,55 +354,75 @@ function StageCard({
   }
 
   if (currentStage === "document") {
+    const documentUrl = document?.url ? verifyUrl(document.url) : null;
     return (
       <div className="mt-8 space-y-4">
         <h3 className="text-2xl font-semibold">Document verification</h3>
-        <label className="block text-sm">
-          <span className="text-neutral-600">Document type</span>
-          <select
-            value={documentType}
-            onChange={(e) => setDocumentType(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2"
-          >
-            <option value="fayda">Fayda ID (Ethiopia digital ID)</option>
-            <option value="kebele_id">Kebele ID</option>
-            <option value="national_id">National ID card</option>
-            <option value="passport">Passport</option>
-            <option value="driving_license">Driving license</option>
-          </select>
-        </label>
-        <label className="block text-sm">
-          <span className="text-neutral-600">Issuing country</span>
-          <select
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2"
-          >
-            {COUNTRIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </label>
-        <ModePicker mode={mode} setMode={setMode} />
-        {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
-        <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
-          <span className="text-neutral-600">Upload document image</span>
-          <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setDocumentFile(e.target.files?.[0] || null)} />
-        </label>
+        {documentUrl ? (
+          <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+            <div className="font-medium">Document already uploaded</div>
+            <p className="mt-1 text-green-800">
+              Using your uploaded {document?.document_type?.replaceAll("_", " ") || "ID"} photo — no need to upload again.
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={documentUrl}
+              alt="Uploaded document"
+              className="mt-3 max-h-56 w-full rounded-lg border border-green-200 object-contain bg-white"
+            />
+          </div>
+        ) : (
+          <>
+            <label className="block text-sm">
+              <span className="text-neutral-600">Document type</span>
+              <select
+                value={documentType}
+                onChange={(e) => setDocumentType(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2"
+              >
+                <option value="fayda">Fayda ID (Ethiopia digital ID)</option>
+                <option value="kebele_id">Kebele ID</option>
+                <option value="national_id">National ID card</option>
+                <option value="passport">Passport</option>
+                <option value="driving_license">Driving license</option>
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="text-neutral-600">Issuing country</span>
+              <select
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <ModePicker mode={mode} setMode={setMode} />
+            {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
+            <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
+              <span className="text-neutral-600">Upload document image</span>
+              <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setDocumentFile(e.target.files?.[0] || null)} />
+            </label>
+          </>
+        )}
         <div className="flex gap-3">
-          <button
-            disabled={busy || !documentFile}
-            onClick={() => onUpload("document")}
-            className="flex-1 rounded-lg border border-neutral-300 px-4 py-3 disabled:opacity-60"
-          >
-            {busy ? "Uploading…" : "Upload document"}
-          </button>
+          {!documentUrl ? (
+            <button
+              disabled={busy || !documentFile}
+              onClick={() => onUpload("document")}
+              className="flex-1 rounded-lg border border-neutral-300 px-4 py-3 disabled:opacity-60"
+            >
+              {busy ? "Uploading…" : "Upload document"}
+            </button>
+          ) : null}
           <button
             disabled={busy || !session.document_id}
             onClick={() => onProgress("document")}
             className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-white disabled:opacity-60"
           >
-            Continue
+            {documentUrl ? "Continue with uploaded document" : "Continue"}
           </button>
         </div>
       </div>
@@ -391,32 +430,59 @@ function StageCard({
   }
 
   if (currentStage === "face") {
+    const livePhotoUrl = livePhoto?.url ? verifyUrl(livePhoto.url) : null;
     return (
       <div className="mt-8 space-y-4">
         <h3 className="text-2xl font-semibold">Face capture</h3>
+        {document?.url ? (
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-600">
+            Document on file:{" "}
+            <a href={verifyUrl(document.url)} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+              view uploaded ID
+            </a>
+          </div>
+        ) : null}
         <p className="text-sm text-neutral-600">
-          Upload a selfie — we match it to your {documentType.replaceAll("_", " ")} photo and run liveness automatically.
+          {livePhotoUrl
+            ? "Your selfie is already uploaded. Run the liveness + face match check below."
+            : `Upload a selfie — we match it to your ${documentType.replaceAll("_", " ")} photo and run liveness automatically.`}
         </p>
-        <ModePicker mode={mode} setMode={setMode} />
-        {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
-        <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
-          <span className="text-neutral-600">Upload selfie / live photo</span>
-          <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setLivePhotoFile(e.target.files?.[0] || null)} />
-        </label>
+        {livePhotoUrl ? (
+          <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+            <div className="font-medium">Selfie already uploaded</div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={livePhotoUrl}
+              alt="Uploaded selfie"
+              className="mt-3 max-h-56 w-full rounded-lg border border-green-200 object-contain bg-white"
+            />
+          </div>
+        ) : (
+          <>
+            <ModePicker mode={mode} setMode={setMode} />
+            {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
+            <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
+              <span className="text-neutral-600">Upload selfie / live photo</span>
+              <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setLivePhotoFile(e.target.files?.[0] || null)} />
+            </label>
+          </>
+        )}
         <div className="flex gap-3">
-          <button
-            disabled={busy || !livePhotoFile}
-            onClick={() => onUpload("live-photo")}
-            className="flex-1 rounded-lg border border-neutral-300 px-4 py-3 disabled:opacity-60"
-          >
-            {busy ? "Uploading…" : "Upload selfie"}
-          </button>
+          {!livePhotoUrl ? (
+            <button
+              disabled={busy || !livePhotoFile}
+              onClick={() => onUpload("live-photo")}
+              className="flex-1 rounded-lg border border-neutral-300 px-4 py-3 disabled:opacity-60"
+            >
+              {busy ? "Uploading…" : "Upload selfie"}
+            </button>
+          ) : null}
           <button
             disabled={busy || !session.live_photo_id}
             onClick={() => onProgress("face")}
             className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-white disabled:opacity-60"
           >
-            Run liveness check
+            {livePhotoUrl ? "Run check on uploaded selfie" : "Run liveness check"}
           </button>
         </div>
       </div>
