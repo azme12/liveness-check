@@ -38,16 +38,18 @@ class FaceAnalyzer:
         self._cascade = None
         self._backend = "histogram"
 
-        try:
-            from insightface.app import FaceAnalysis
+        settings = get_settings()
+        if settings.insightface_enabled:
+            try:
+                from insightface.app import FaceAnalysis
 
-            app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-            app.prepare(ctx_id=-1, det_size=(640, 640))
-            self._app = app
-            self._backend = "insightface"
-            return
-        except Exception:
-            self._app = None
+                app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+                app.prepare(ctx_id=-1, det_size=(640, 640))
+                self._app = app
+                self._backend = "insightface"
+                return
+            except Exception:
+                self._app = None
 
         # OpenCV 4.x Haar cascades
         if hasattr(cv2, "CascadeClassifier") and hasattr(cv2, "data"):

@@ -31,3 +31,6 @@ services:
         value: "false"
       - key: LIVENESS_OPENFACE_ENABLED
         value: "false"
+      # Render free tier (512MB RAM) — InsightFace OOMs; use OpenCV fallback.
+      - key: LIVENESS_INSIGHTFACE_ENABLED
+        value: "false"

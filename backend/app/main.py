@@ -32,6 +32,10 @@ async def lifespan(_: FastAPI):
 
     def _warm_face_model() -> None:
         try:
+            from liveness.config import get_settings as get_liveness_settings
+
+            if not get_liveness_settings().insightface_enabled:
+                return
             from liveness.ml.face import get_face_analyzer
 
             get_face_analyzer()
