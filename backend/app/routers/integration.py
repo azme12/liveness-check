@@ -13,6 +13,7 @@ from app.schemas import AllowedIpCreate, WebhookCreate, WebhookUpdate
 from app.services.seed import new_id, serialize, utcnow
 from app.services.webhook_events import WEBHOOK_EVENT_TYPES, validate_events
 from app.services.webhooks import emit_event, emit_event_to_webhook
+from liveness.ml.scores import enrich_verification_scores
 
 router = APIRouter(prefix="/integration", tags=["integration"])
 
@@ -237,14 +238,16 @@ async def test_webhook(webhook_id: str, user: dict = Depends(get_current_user)):
     wh = await get_database().webhooks.find_one({"id": webhook_id, "org_id": user["org_id"]}, {"_id": 0})
     if not wh:
         raise HTTPException(status_code=404, detail="Webhook not found")
-    sample_scores = {
-        "document_type": "fayda",
-        "document_quality": 0.87,
-        "liveness_score": 0.91,
-        "liveness_passed": True,
-        "face_match_score": 0.84,
-        "face_match_passed": True,
-    }
+    sample_scores = enrich_verification_scores(
+        {
+            "document_type": "fayda",
+            "document_quality": 0.87,
+            "liveness_score": 1.0,
+            "liveness_passed": True,
+            "face_match_score": 1.0,
+            "face_match_passed": True,
+        }
+    )
     check_payload = {
         "id": new_id("chk_"),
         "status": "complete",

@@ -38,6 +38,15 @@ type SessionData = {
     status: string;
     outcome?: string | null;
     result?: {
+      signals?: {
+        scores?: {
+          facialSimilarityScore?: number | null;
+          livenessCheckScore?: number | null;
+          face_match_score?: number | null;
+          liveness_score?: number | null;
+          document_type?: string | null;
+        };
+      };
       biometric?: { liveness?: string; liveness_score?: number; face_match_score?: number | null };
       document?: { quality_score?: number; document_type?: string | null };
     } | null;
@@ -234,7 +243,25 @@ function VerifyHostedInner() {
         <div className="mt-6 rounded-2xl border border-neutral-200 p-6">
           <h2 className="text-lg font-semibold">Checks in this verification</h2>
           <div className="mt-3 space-y-2">
-            {data.checks.map((check) => (
+            {data.checks.map((check) => {
+              const scores = check.result?.signals?.scores;
+              const facePct =
+                typeof scores?.facialSimilarityScore === "number"
+                  ? scores.facialSimilarityScore
+                  : typeof scores?.face_match_score === "number"
+                    ? Math.round(scores.face_match_score * 100)
+                    : typeof check.result?.biometric?.face_match_score === "number"
+                      ? Math.round(check.result.biometric.face_match_score * 100)
+                      : null;
+              const livePct =
+                typeof scores?.livenessCheckScore === "number"
+                  ? scores.livenessCheckScore
+                  : typeof scores?.liveness_score === "number"
+                    ? Math.round(scores.liveness_score * 100)
+                    : typeof check.result?.biometric?.liveness_score === "number"
+                      ? Math.round(check.result.biometric.liveness_score * 100)
+                      : null;
+              return (
               <div key={check.id} className="rounded-lg border border-neutral-200 px-3 py-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>{check.label || check.type.replaceAll("_", " ")}</div>
@@ -243,35 +270,30 @@ function VerifyHostedInner() {
                     <div className="text-xs capitalize text-neutral-500">{check.outcome || "pending"}</div>
                   </div>
                 </div>
-                {check.result?.document || check.result?.biometric ? (
+                {check.result?.document || check.result?.biometric || scores ? (
                   <div className="mt-2 grid gap-2 text-xs text-neutral-600 md:grid-cols-4">
                     <div>
                       <span className="font-medium">Doc type:</span>{" "}
-                      {check.result?.document?.document_type || "—"}
+                      {scores?.document_type || check.result?.document?.document_type || "—"}
                     </div>
                     <div>
                       <span className="font-medium">Doc quality:</span>{" "}
                       {typeof check.result?.document?.quality_score === "number"
-                        ? check.result.document.quality_score.toFixed(2)
+                        ? Math.round(check.result.document.quality_score * 100)
                         : "—"}
                     </div>
                     <div>
                       <span className="font-medium">Liveness:</span>{" "}
-                      {check.result?.biometric?.liveness || "—"}
-                      {typeof check.result?.biometric?.liveness_score === "number"
-                        ? ` (${check.result.biometric.liveness_score.toFixed(2)})`
-                        : ""}
+                      {livePct !== null ? `${livePct}` : check.result?.biometric?.liveness || "—"}
                     </div>
                     <div>
                       <span className="font-medium">Face match:</span>{" "}
-                      {typeof check.result?.biometric?.face_match_score === "number"
-                        ? check.result.biometric.face_match_score.toFixed(2)
-                        : "—"}
+                      {facePct !== null ? `${facePct}` : "—"}
                     </div>
                   </div>
                 ) : null}
               </div>
-            ))}
+            );})}
           </div>
         </div>
       </div>

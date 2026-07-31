@@ -19,6 +19,7 @@ from app.services.webhook_events import (
     RETRY_DELAYS_SECONDS,
     resource_type_for_event,
 )
+from liveness.ml.scores import enrich_verification_scores
 
 logger = logging.getLogger(__name__)
 
@@ -324,20 +325,22 @@ def _extract_check_scores(check: dict[str, Any]) -> dict[str, Any]:
     signals = result.get("signals") or {}
     scores = signals.get("scores")
     if isinstance(scores, dict):
-        return scores
+        return enrich_verification_scores(scores)
     document = result.get("document") or {}
     biometric = result.get("biometric") or {}
-    return {
-        "document_type": document.get("document_type"),
-        "document_quality": document.get("quality_score"),
-        "document_valid": document.get("valid"),
-        "liveness_score": biometric.get("liveness_score"),
-        "liveness_passed": biometric.get("liveness") == "live",
-        "liveness_label": biometric.get("liveness"),
-        "face_match_score": biometric.get("face_match_score"),
-        "face_match_passed": biometric.get("face_match_passed"),
-        "face_detected": biometric.get("face_detected"),
-    }
+    return enrich_verification_scores(
+        {
+            "document_type": document.get("document_type"),
+            "document_quality": document.get("quality_score"),
+            "document_valid": document.get("valid"),
+            "liveness_score": biometric.get("liveness_score"),
+            "liveness_passed": biometric.get("liveness") == "live",
+            "liveness_label": biometric.get("liveness"),
+            "face_match_score": biometric.get("face_match_score"),
+            "face_match_passed": biometric.get("face_match_passed"),
+            "face_detected": biometric.get("face_detected"),
+        }
+    )
 
 
 def _verification_summary(scores: dict[str, Any], outcome: str | None = None) -> dict[str, Any]:
@@ -348,8 +351,10 @@ def _verification_summary(scores: dict[str, Any], outcome: str | None = None) ->
         "document_quality": scores.get("document_quality"),
         "liveness_score": scores.get("liveness_score"),
         "liveness_passed": scores.get("liveness_passed"),
+        "livenessCheckScore": scores.get("livenessCheckScore"),
         "face_match_score": scores.get("face_match_score"),
         "face_match_passed": scores.get("face_match_passed"),
+        "facialSimilarityScore": scores.get("facialSimilarityScore"),
         "passed": bool(scores.get("face_match_passed")) and bool(scores.get("liveness_passed")),
     }
 

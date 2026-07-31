@@ -10,6 +10,7 @@ import numpy as np
 from liveness.config import Settings, get_settings
 from liveness.ml import DocumentOcr, FaceAnalyzer, LivenessDetector, OpenFaceAnalyzer, assess_quality
 from liveness.ml.document_types import resolve_document_type
+from liveness.ml.scores import enrich_verification_scores
 from liveness.types import (
     BiometricResult,
     CheckOutcome,
@@ -49,7 +50,7 @@ def _identity_scores(
 ) -> dict[str, Any]:
     doc = document
     bio = biometric
-    return {
+    raw = {
         "document_type": doc.document_type if doc else None,
         "document_quality": doc.quality_score if doc else None,
         "document_valid": doc.valid if doc else None,
@@ -60,6 +61,7 @@ def _identity_scores(
         "face_match_passed": bio.face_match_passed if bio else match_passed,
         "face_detected": bio.face_detected if bio else None,
     }
+    return enrich_verification_scores(raw)
 
 
 class CheckEngine:
@@ -126,13 +128,15 @@ class CheckEngine:
                 warnings=warnings,
             ),
             signals={
-                "scores": {
-                    "document_type": doc_type,
-                    "document_quality": quality.score,
-                    "document_valid": valid,
-                    "liveness_score": None,
-                    "face_match_score": None,
-                }
+                "scores": enrich_verification_scores(
+                    {
+                        "document_type": doc_type,
+                        "document_quality": quality.score,
+                        "document_valid": valid,
+                        "liveness_score": None,
+                        "face_match_score": None,
+                    }
+                ),
             },
             explainability=warnings,
             model_versions={"ocr": ocr.backend, "quality": "opencv_heuristic"},

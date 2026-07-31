@@ -657,8 +657,22 @@ export default function ClientDetailPage() {
                           <div>Outcome: <span className="capitalize text-white">{identityCheck.outcome || "—"}</span></div>
                           <div>Document: {String(scores?.document_type || documentType)}</div>
                           <div>Doc quality: {typeof scores?.document_quality === "number" ? Number(scores.document_quality).toFixed(2) : "—"}</div>
-                          <div>Liveness: {typeof scores?.liveness_score === "number" ? Number(scores.liveness_score).toFixed(2) : "—"}</div>
-                          <div>Face match: {typeof scores?.face_match_score === "number" ? Number(scores.face_match_score).toFixed(2) : "—"}</div>
+                          <div>
+                            Liveness:{" "}
+                            {typeof scores?.livenessCheckScore === "number"
+                              ? scores.livenessCheckScore
+                              : typeof scores?.liveness_score === "number"
+                                ? Math.round(Number(scores.liveness_score) * 100)
+                                : "—"}
+                          </div>
+                          <div>
+                            Face match:{" "}
+                            {typeof scores?.facialSimilarityScore === "number"
+                              ? scores.facialSimilarityScore
+                              : typeof scores?.face_match_score === "number"
+                                ? Math.round(Number(scores.face_match_score) * 100)
+                                : "—"}
+                          </div>
                         </div>
                         <p className="mt-2 text-[10px] text-[var(--muted)]">
                           Webhook events <code className="text-white">check.completed</code> and{" "}
