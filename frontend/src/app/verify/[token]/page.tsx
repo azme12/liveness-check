@@ -331,6 +331,43 @@ function VerifyHostedInner() {
                     </div>
                   </div>
                 ) : null}
+                {(() => {
+                  const fa = (check.result?.signals as { face_analysis?: Record<string, unknown>; active_liveness?: Record<string, unknown>; reject_reasons?: string[] } | undefined);
+                  const faceA = fa?.face_analysis;
+                  const pose = fa?.active_liveness;
+                  const reasons = fa?.reject_reasons || [];
+                  if (!faceA && !pose && !reasons.length) return null;
+                  const yaw = faceA?.selfie_yaw ?? pose?.head_pose_yaw;
+                  const pitch = faceA?.selfie_pitch ?? pose?.head_pose_pitch;
+                  const roll = faceA?.selfie_roll ?? pose?.head_pose_roll;
+                  return (
+                    <div className="mt-2 space-y-1 text-xs text-neutral-600">
+                      <div className="grid gap-2 md:grid-cols-4">
+                        <div>
+                          <span className="font-medium">Matcher:</span>{" "}
+                          {String(faceA?.backend || "—")}
+                        </div>
+                        <div>
+                          <span className="font-medium">Yaw:</span>{" "}
+                          {typeof yaw === "number" ? `${yaw.toFixed(1)}°` : "—"}
+                        </div>
+                        <div>
+                          <span className="font-medium">Pitch:</span>{" "}
+                          {typeof pitch === "number" ? `${pitch.toFixed(1)}°` : "—"}
+                        </div>
+                        <div>
+                          <span className="font-medium">Roll:</span>{" "}
+                          {typeof roll === "number" ? `${roll.toFixed(1)}°` : "—"}
+                        </div>
+                      </div>
+                      {reasons.length ? (
+                        <div className="rounded bg-red-50 px-2 py-1 text-red-700">
+                          Reject reasons: {reasons.join(", ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
               </div>
             );})}
           </div>

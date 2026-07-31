@@ -21,6 +21,8 @@ class FaceDetection:
     pose_yaw: float | None = None
     pose_pitch: float | None = None
     pose_roll: float | None = None
+    # Raw YuNet detection row (bbox + 5 landmarks + score) for SFace alignment
+    raw_row: np.ndarray | None = None
 
 
 @dataclass
@@ -32,12 +34,12 @@ class FaceMatchReport:
     face_detected_b: bool
 
 
-def _yunet_model_path() -> Path | None:
+def _model_path(filename: str) -> Path | None:
     settings = get_settings()
     candidates = [
-        settings.models_dir / "face_detection_yunet_2023mar.onnx",
-        Path(__file__).resolve().parents[3] / "models" / "face_detection_yunet_2023mar.onnx",
-        Path("/app/models/face_detection_yunet_2023mar.onnx"),
+        settings.models_dir / filename,
+        Path(__file__).resolve().parents[3] / "models" / filename,
+        Path("/app/models") / filename,
     ]
     for path in candidates:
         if path.exists():
@@ -45,11 +47,33 @@ def _yunet_model_path() -> Path | None:
     return None
 
 
+def _yunet_model_path() -> Path | None:
+    return _model_path("face_detection_yunet_2023mar.onnx")
+
+
+def _sface_model_path() -> Path | None:
+    return _model_path("face_recognition_sface_2021dec.onnx")
+
+
+def _offset_yunet_row(row: np.ndarray | None, ox: int, oy: int) -> np.ndarray | None:
+    if row is None:
+        return None
+    out = np.asarray(row, dtype=np.float32).copy()
+    # YuNet: x,y,w,h, then 5 landmarks (x,y)*5, score
+    out[0] += ox
+    out[1] += oy
+    for i in range(4, min(len(out), 14), 2):
+        out[i] += ox
+        out[i + 1] += oy
+    return out
+
+
 class FaceAnalyzer:
     def __init__(self) -> None:
         self.threshold = get_settings().face_match_threshold
         self._app = None
         self._yunet = None
+        self._sface = None
         self._cascade = None
         self._backend = "histogram"
 
@@ -82,6 +106,15 @@ class FaceAnalyzer:
                 self._backend = "opencv_yunet"
             except Exception:
                 self._yunet = None
+
+        # SFace embeddings — real face recognition without InsightFace's memory cost
+        sface_path = _sface_model_path()
+        if self._yunet is not None and sface_path is not None and hasattr(cv2, "FaceRecognizerSF"):
+            try:
+                self._sface = cv2.FaceRecognizerSF.create(str(sface_path), "")
+                self._backend = "opencv_yunet_sface"
+            except Exception:
+                self._sface = None
 
         # Haar cascade fallback
         if hasattr(cv2, "CascadeClassifier") and hasattr(cv2, "data"):
@@ -170,9 +203,21 @@ class FaceAnalyzer:
                     pose_yaw=pose_yaw,
                     pose_pitch=pose_pitch,
                     pose_roll=pose_roll,
+                    raw_row=np.asarray(row, dtype=np.float32),
                 )
             )
         return out
+
+    def _sface_embedding(self, image: np.ndarray, face: FaceDetection) -> np.ndarray | None:
+        """Aligned 128-d SFace embedding (needs YuNet landmarks)."""
+        if self._sface is None or face.raw_row is None:
+            return None
+        try:
+            aligned = self._sface.alignCrop(image, face.raw_row.reshape(1, -1))
+            feature = self._sface.feature(aligned)
+            return np.asarray(feature, dtype=np.float32).reshape(-1)
+        except Exception:
+            return None
 
     def _detect_haar(self, image: np.ndarray, *, min_size: tuple[int, int]) -> list[FaceDetection]:
         if self._cascade is None:
@@ -233,26 +278,41 @@ class FaceAnalyzer:
 
         min_size = (24, 24) if document_mode else (40, 40)
         faces = self._detect_haar(image, min_size=min_size)
-        if faces or not document_mode:
-            # For selfies, also try a scaled-down pass if full-res missed
-            if not faces and not document_mode:
-                h, w = image.shape[:2]
-                if max(h, w) > 640:
-                    scale = 640 / max(h, w)
-                    small = cv2.resize(image, (int(w * scale), int(h * scale)))
-                    for f in self._detect_yunet(small) or self._detect_haar(small, min_size=(30, 30)):
-                        x, y, bw, bh = f.bbox
-                        faces.append(
-                            FaceDetection(
-                                bbox=(int(x / scale), int(y / scale), int(bw / scale), int(bh / scale)),
-                                confidence=f.confidence,
-                                pose_yaw=f.pose_yaw,
-                                pose_pitch=f.pose_pitch,
-                                pose_roll=f.pose_roll,
-                            )
+        if not faces and not document_mode:
+            h, w = image.shape[:2]
+            if max(h, w) > 640:
+                scale = 640 / max(h, w)
+                small = cv2.resize(image, (int(w * scale), int(h * scale)))
+                for f in self._detect_yunet(small) or self._detect_haar(small, min_size=(30, 30)):
+                    x, y, bw, bh = f.bbox
+                    row = f.raw_row
+                    if row is not None:
+                        row = row.copy()
+                        row[0] /= scale
+                        row[1] /= scale
+                        row[2] /= scale
+                        row[3] /= scale
+                        for i in range(4, min(len(row), 14), 2):
+                            row[i] /= scale
+                            row[i + 1] /= scale
+                    faces.append(
+                        FaceDetection(
+                            bbox=(int(x / scale), int(y / scale), int(bw / scale), int(bh / scale)),
+                            confidence=f.confidence,
+                            pose_yaw=f.pose_yaw,
+                            pose_pitch=f.pose_pitch,
+                            pose_roll=f.pose_roll,
+                            raw_row=row,
                         )
+                    )
+
+        if faces:
             return faces
 
+        if not document_mode:
+            return faces
+
+        # Document mode: search portrait regions when full-frame miss
         collected: list[FaceDetection] = []
         for crop, ox, oy in self._document_face_regions(image):
             if crop.size == 0:
@@ -266,6 +326,7 @@ class FaceAnalyzer:
                         pose_yaw=f.pose_yaw,
                         pose_pitch=f.pose_pitch,
                         pose_roll=f.pose_roll,
+                        raw_row=_offset_yunet_row(f.raw_row, ox, oy),
                     )
                 )
         return collected
@@ -298,23 +359,40 @@ class FaceAnalyzer:
                 face_detected_b=fb is not None,
             )
 
-        emb_a = fa.embedding if fa.embedding is not None else self._embedding_fallback(image_a, fa)
-        emb_b = fb.embedding if fb.embedding is not None else self._embedding_fallback(image_b, fb)
+        emb_a = fa.embedding
+        emb_b = fb.embedding
+        used_sface = False
+        if emb_a is None or emb_b is None:
+            sface_a = self._sface_embedding(image_a, fa)
+            sface_b = self._sface_embedding(image_b, fb)
+            if sface_a is not None and sface_b is not None:
+                emb_a, emb_b, used_sface = sface_a, sface_b, True
+        if emb_a is None:
+            emb_a = self._embedding_fallback(image_a, fa)
+        if emb_b is None:
+            emb_b = self._embedding_fallback(image_b, fb)
 
         score = float(np.dot(emb_a, emb_b) / ((np.linalg.norm(emb_a) * np.linalg.norm(emb_b)) + 1e-8))
         score = max(0.0, min(1.0, score))
 
         if self._backend == "insightface":
             thr = self.threshold
-        elif self._backend in {"opencv_yunet", "opencv_haar"}:
+            backend = "insightface"
+        elif used_sface:
+            # SFace cosine: ~0.363 is the reference same-identity threshold
+            thr = 0.363
+            backend = "opencv_sface"
+        elif self._backend in {"opencv_yunet", "opencv_yunet_sface", "opencv_haar"}:
             thr = max(0.32, self.threshold - 0.08)
+            backend = f"{self._backend}_histogram"
         else:
             thr = 0.55
+            backend = self._backend
 
         return FaceMatchReport(
             score=score,
             passed=score >= thr,
-            backend=self._backend,
+            backend=backend,
             face_detected_a=True,
             face_detected_b=True,
         )

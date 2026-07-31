@@ -859,6 +859,7 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
             <th className="py-2 text-left font-medium">Outcome</th>
             <th className="py-2 text-left font-medium">Face match</th>
             <th className="py-2 text-left font-medium">Liveness</th>
+            <th className="py-2 text-left font-medium">Angles / matcher</th>
             <th className="py-2 text-left font-medium">Completed</th>
           </tr>
         </thead>
@@ -867,6 +868,20 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
             const s = c.result?.signals?.scores as Record<string, unknown> | undefined;
             const face = s?.face_match_score ?? c.result?.biometric?.face_match_score;
             const live = s?.liveness_score ?? c.result?.biometric?.liveness_score;
+            const signals = c.result?.signals as
+              | {
+                  face_analysis?: Record<string, unknown>;
+                  active_liveness?: Record<string, unknown>;
+                  reject_reasons?: string[];
+                }
+              | undefined;
+            const fa = signals?.face_analysis;
+            const pose = signals?.active_liveness;
+            const yaw = fa?.selfie_yaw ?? pose?.head_pose_yaw;
+            const pitch = fa?.selfie_pitch ?? pose?.head_pose_pitch;
+            const roll = fa?.selfie_roll ?? pose?.head_pose_roll;
+            const matcher = String(fa?.backend || "—");
+            const reasons = signals?.reject_reasons || [];
             return (
             <tr key={c.id} className="border-b border-[var(--border)] last:border-0">
               <td className="py-3">{c.type.replaceAll("_", " ")}</td>
@@ -884,12 +899,21 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
               <td className="py-3 text-[var(--muted)]">
                 {typeof live === "number" ? live.toFixed(2) : "—"}
               </td>
+              <td className="py-3 text-xs text-[var(--muted)]">
+                <div>{matcher}</div>
+                <div>
+                  Y{typeof yaw === "number" ? yaw.toFixed(0) : "—"}/
+                  P{typeof pitch === "number" ? pitch.toFixed(0) : "—"}/
+                  R{typeof roll === "number" ? roll.toFixed(0) : "—"}°
+                </div>
+                {reasons.length ? <div className="text-red-400">{reasons[0]}</div> : null}
+              </td>
               <td className="py-3 text-[var(--muted)]">{formatDate(c.completed_at || c.created_at)}</td>
             </tr>
           );})}
           {!data?.items?.length ? (
             <tr>
-              <td colSpan={6} className="py-8 text-center text-[var(--muted)]">
+              <td colSpan={7} className="py-8 text-center text-[var(--muted)]">
                 No checks yet. Start a verification to create checks.
               </td>
             </tr>

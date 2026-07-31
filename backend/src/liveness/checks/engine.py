@@ -186,6 +186,14 @@ class CheckEngine:
             explain.append("no_face_on_document")
         if match and not match.face_detected_b:
             explain.append("no_face_on_selfie")
+        if match:
+            explain.append(f"face_backend:{match.backend}")
+        if active.head_pose_yaw is not None:
+            explain.append(f"head_yaw:{active.head_pose_yaw:.1f}")
+        if active.head_pose_pitch is not None:
+            explain.append(f"head_pitch:{active.head_pose_pitch:.1f}")
+        if active.head_pose_roll is not None:
+            explain.append(f"head_roll:{active.head_pose_roll:.1f}")
 
         if (
             doc_result.outcome == CheckOutcome.REJECT
@@ -205,6 +213,7 @@ class CheckEngine:
             outcome=outcome.value,
             face_detected=bool(faces),
         )
+        selfie_face = faces[0] if faces else None
         signals = {
             "scores": scores,
             "complycube": breakdown,
@@ -213,8 +222,19 @@ class CheckEngine:
                 "backend": active.backend,
                 "head_pose_yaw": active.head_pose_yaw,
                 "head_pose_pitch": active.head_pose_pitch,
+                "head_pose_roll": active.head_pose_roll,
                 "detection_certainty": active.detection_certainty,
             },
+            "face_analysis": {
+                "backend": match.backend if match else self.faces._backend,
+                "face_detected_document": match.face_detected_a if match else None,
+                "face_detected_selfie": match.face_detected_b if match else bool(faces),
+                "selfie_yaw": selfie_face.pose_yaw if selfie_face else None,
+                "selfie_pitch": selfie_face.pose_pitch if selfie_face else None,
+                "selfie_roll": selfie_face.pose_roll if selfie_face else None,
+                "liveness_backend": live.backend,
+            },
+            "reject_reasons": [e for e in explain if e.startswith(("liveness_", "face_match_", "no_face_", "reject:"))],
         }
 
         versions = dict(doc_result.model_versions)

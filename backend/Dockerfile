@@ -28,7 +28,9 @@ RUN pip install --upgrade pip \
     && pip install -e . \
     && mkdir -p /app/storage /app/models \
     && curl -fsSL -o /app/models/face_detection_yunet_2023mar.onnx \
-      "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+      "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" \
+    && curl -fsSL -o /app/models/face_recognition_sface_2021dec.onnx \
+      "https://huggingface.co/opencv/opencv_zoo/resolve/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
 
 EXPOSE 8100
 
