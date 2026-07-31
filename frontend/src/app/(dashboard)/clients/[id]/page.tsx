@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Panel } from "@/components/AppShell";
 import { Footer } from "@/components/Footer";
 import { api, Paginated } from "@/lib/api";
-import { verifyUrl } from "@/lib/verifyApi";
+import { verifyUrl, fetchWithRetry } from "@/lib/verifyApi";
+import { networkErrorMessage } from "@/lib/fetchRetry";
 import { parseUploadDetail, type ProfileValidation } from "@/lib/uploadErrors";
 import { cn, formatDate } from "@/lib/format";
 
@@ -174,7 +175,7 @@ export default function ClientDetailPage() {
       setWorkflowId(first?.id || "");
       setDeliveryEmail(client?.email || "");
     } catch (err) {
-      setWorkflowsError(err instanceof Error ? err.message : "Failed to load workflows");
+      setWorkflowsError(networkErrorMessage(err));
       setWorkflows([]);
       setWorkflowId("");
     } finally {
@@ -198,7 +199,7 @@ export default function ClientDetailPage() {
       setStartResult(res);
       if (method === "upload" && res.share_token) {
         setConsentAccepted(true);
-        await fetch(verifyUrl(`/api/verify/${res.share_token}/progress`), {
+        await fetchWithRetry(verifyUrl(`/api/verify/${res.share_token}/progress`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ stage: "consent" }),
@@ -221,7 +222,7 @@ export default function ClientDetailPage() {
         )}&body=${encodeURIComponent(`Open this secure verification link:\n\n${inviteLink}`)}`;
       }
     } catch (err) {
-      setStartError(err instanceof Error ? err.message : "Failed to create verification session");
+      setStartError(networkErrorMessage(err));
       console.error(err);
     } finally {
       setStarting(false);
@@ -232,7 +233,7 @@ export default function ClientDetailPage() {
 
   async function refreshVerifyChecksForToken(token: string) {
     if (!token) return;
-    const res = await fetch(verifyUrl(`/api/verify/${token}`), { cache: "no-store" });
+    const res = await fetchWithRetry(verifyUrl(`/api/verify/${token}`), { cache: "no-store" });
     if (!res.ok) return;
     const data = (await res.json()) as {
       checks?: Check[];
@@ -279,7 +280,7 @@ export default function ClientDetailPage() {
         form.append("document_type", documentType);
         form.append("issuing_country", client?.nationality || "Ethiopia");
       }
-      const res = await fetch(verifyUrl(`/api/verify/${verifyToken}/${kind}`), {
+      const res = await fetchWithRetry(verifyUrl(`/api/verify/${verifyToken}/${kind}`), {
         method: "POST",
         body: form,
       });
@@ -305,7 +306,7 @@ export default function ClientDetailPage() {
           : "Selfie uploaded. Scores ready — webhook POST sent to your configured URL. Check Integration → Events.",
       );
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
+      setUploadError(networkErrorMessage(err));
     } finally {
       setUploadBusy(false);
     }

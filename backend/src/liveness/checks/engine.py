@@ -8,7 +8,8 @@ from typing import Any
 import numpy as np
 
 from liveness.config import Settings, get_settings
-from liveness.ml import DocumentOcr, FaceAnalyzer, LivenessDetector, OpenFaceAnalyzer, assess_quality
+from liveness.ml import DocumentOcr, LivenessDetector, OpenFaceAnalyzer, assess_quality
+from liveness.ml.face import get_face_analyzer
 from liveness.ml.document_types import resolve_document_type
 from liveness.ml.partner_format import build_identity_result_breakdown
 from liveness.ml.scores import enrich_verification_scores
@@ -72,7 +73,7 @@ class CheckEngine:
         self.settings = settings or get_settings()
         self.ocr = DocumentOcr()
         self.liveness = LivenessDetector()
-        self.faces = FaceAnalyzer()
+        self.faces = get_face_analyzer()
         self.openface = OpenFaceAnalyzer()
 
     def run(self, check_type: CheckType, ctx: CheckContext) -> CheckResult:

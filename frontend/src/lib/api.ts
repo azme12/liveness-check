@@ -1,10 +1,7 @@
 /** Backend origin for browser + server calls. Empty string = same-origin (local proxy). */
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL !== undefined && process.env.NEXT_PUBLIC_API_URL !== ""
-    ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
-    : typeof window !== "undefined"
-      ? ""
-      : "http://127.0.0.1:8100";
+import { fetchWithRetry, resolveApiBase } from "@/lib/fetchRetry";
+
+export const API_BASE = resolveApiBase();
 
 export type Paginated<T> = {
   items: T[];
@@ -97,7 +94,7 @@ export async function api<T>(
     finalPath = withEnvironment(path, env);
   }
 
-  const res = await fetch(`${API_BASE}${finalPath}`, { ...options, headers });
+  const res = await fetchWithRetry(`${API_BASE}${finalPath}`, { ...options, headers });
   if (res.status === 401 && typeof window !== "undefined") {
     clearSession();
     if (!window.location.pathname.startsWith("/login")) {
@@ -112,7 +109,11 @@ export async function api<T>(
     } catch {
       /* ignore */
     }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const msg = typeof detail === "string" ? detail : JSON.stringify(detail);
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      throw new Error("API server is starting up. Wait 30 seconds and try again.");
+    }
+    throw new Error(msg);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

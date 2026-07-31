@@ -28,6 +28,13 @@ async def lifespan(_: FastAPI):
     if get_settings().seed_demo:
         await seed_if_empty()
     start_webhook_worker()
+    # Warm face model once so uploads don't reload InsightFace per request (OOM on Render).
+    try:
+        from liveness.ml.face import get_face_analyzer
+
+        get_face_analyzer()
+    except Exception:
+        pass
     yield
     stop_webhook_worker()
     await close_dashboard_db()
@@ -73,7 +80,8 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.origins + ["*"],
+        allow_origins=settings.origins,
+        allow_origin_regex=r"https://.*\.vercel\.app",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

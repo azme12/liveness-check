@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from liveness.config import get_settings
-from liveness.ml.face import FaceAnalyzer
+from liveness.ml.face import FaceAnalyzer, get_face_analyzer
 from liveness.ml.quality import _to_bgr
 
 ISSUE_MESSAGES: dict[str, str] = {
@@ -124,7 +124,7 @@ def validate_selfie_profile(
     else:
         checks["resolution"] = True
 
-    faces_analyzer = analyzer or FaceAnalyzer()
+    faces_analyzer = analyzer or get_face_analyzer()
     faces = faces_analyzer.detect(bgr, document_mode=False)
 
     if len(faces) == 0:

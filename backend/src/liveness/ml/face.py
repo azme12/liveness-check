@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import cv2
 import numpy as np
@@ -190,3 +191,9 @@ class FaceAnalyzer:
             face_detected_a=True,
             face_detected_b=True,
         )
+
+
+@lru_cache(maxsize=1)
+def get_face_analyzer() -> FaceAnalyzer:
+    """Process-wide singleton — InsightFace model load is expensive (~100MB+ RAM)."""
+    return FaceAnalyzer()

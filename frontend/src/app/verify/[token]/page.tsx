@@ -2,7 +2,8 @@
 
 import { useParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { verifyUrl } from "@/lib/verifyApi";
+import { verifyUrl, fetchWithRetry } from "@/lib/verifyApi";
+import { networkErrorMessage } from "@/lib/fetchRetry";
 import { parseUploadDetail, type ProfileValidation } from "@/lib/uploadErrors";
 
 type MediaAsset = {
@@ -97,14 +98,14 @@ function VerifyHostedInner() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(verifyUrl(`/api/verify/${params.token}`), { cache: "no-store" });
+      const res = await fetchWithRetry(verifyUrl(`/api/verify/${params.token}`), { cache: "no-store" });
       if (!res.ok) throw new Error("Verification session not found");
       const json = (await res.json()) as SessionData;
       setData(json);
       if (json.document?.document_type) setDocumentType(json.document.document_type);
       if (json.document?.issuing_country) setCountry(json.document.issuing_country);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load verification");
+      setError(networkErrorMessage(err));
       setData(null);
     } finally {
       setLoading(false);
@@ -120,7 +121,7 @@ function VerifyHostedInner() {
     setMessage("");
     setError("");
     try {
-      const res = await fetch(verifyUrl(`/api/verify/${params.token}/progress`), {
+      const res = await fetchWithRetry(verifyUrl(`/api/verify/${params.token}/progress`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage, country, mode }),
@@ -132,7 +133,8 @@ function VerifyHostedInner() {
       await load();
       setMessage("Stage updated successfully.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to continue verification");
+      setError(networkErrorMessage(err));
+      setMessage("");
     } finally {
       setBusy(false);
     }
@@ -152,7 +154,7 @@ function VerifyHostedInner() {
         form.append("document_type", documentType);
         form.append("issuing_country", country);
       }
-      const res = await fetch(verifyUrl(`/api/verify/${params.token}/${kind}`), {
+      const res = await fetchWithRetry(verifyUrl(`/api/verify/${params.token}/${kind}`), {
         method: "POST",
         body: form,
       });
@@ -177,7 +179,7 @@ function VerifyHostedInner() {
           : "Live photo uploaded — face match and liveness scores are being calculated.",
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Unable to upload ${kind}`);
+      setError(networkErrorMessage(err));
     } finally {
       setBusy(false);
     }

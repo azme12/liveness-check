@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from liveness.checks import CheckContext, CheckEngine
+from liveness.api.deps import get_check_engine
+from liveness.checks import CheckContext
 from liveness.db import find_one, get_database, update_one
 from liveness.ml import FaceGallery, decode_image
 from liveness.storage import BlobStore
@@ -10,7 +11,7 @@ from liveness.types import CheckStatus, CheckType, utc_now
 
 
 async def process_check(check_id: str) -> None:
-    engine = CheckEngine()
+    engine = get_check_engine()
     store = BlobStore()
     check = await find_one("checks", {"id": check_id})
     if check is None:

@@ -14,7 +14,7 @@ import numpy as np
 
 from liveness.config import get_settings
 from liveness.db import find_one, get_database
-from liveness.ml.face import FaceAnalyzer
+from liveness.ml.face import FaceAnalyzer, get_face_analyzer
 from liveness.types import new_id, utc_now
 
 
@@ -46,7 +46,7 @@ class FaceGallery:
     """Enroll and search face embeddings per client (1:N within client scope)."""
 
     def __init__(self, analyzer: FaceAnalyzer | None = None) -> None:
-        self.analyzer = analyzer or FaceAnalyzer()
+        self.analyzer = analyzer or get_face_analyzer()
         self.threshold = get_settings().face_gallery_threshold
 
     def embed_image(self, image: np.ndarray) -> tuple[np.ndarray | None, str]:
