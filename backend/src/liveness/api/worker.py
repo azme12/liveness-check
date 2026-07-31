@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from liveness.checks import CheckContext, CheckEngine
 from liveness.db import find_one, get_database, update_one
-from liveness.ml import decode_image
+from liveness.ml import FaceGallery, decode_image
 from liveness.storage import BlobStore
 from liveness.types import CheckStatus, CheckType, utc_now
 
@@ -20,11 +20,16 @@ async def process_check(check_id: str) -> None:
         doc_img = None
         live_img = None
         client_name = None
+        options = dict(check.get("options") or {})
 
         if check.get("document_id"):
             doc = await find_one("documents", {"id": check["document_id"]})
             if doc:
                 doc_img = decode_image(store.get(doc["storage_key"]))
+                if doc.get("document_type"):
+                    options["document_type"] = doc["document_type"]
+                if doc.get("issuing_country"):
+                    options["issuing_country"] = doc["issuing_country"]
 
         if check.get("live_photo_id"):
             photo = await find_one("live_photos", {"id": check["live_photo_id"]})
@@ -35,13 +40,32 @@ async def process_check(check_id: str) -> None:
         if client:
             client_name = client.get("full_name")
 
+        check_type = CheckType(check["type"])
+        if check_type == CheckType.FACE_AUTHENTICATION and live_img is not None:
+            gallery = FaceGallery(analyzer=engine.faces)
+            match = await gallery.search_client(client_id=check["client_id"], image=live_img)
+            if match is None:
+                enrolled = await gallery.has_enrollment(check["client_id"])
+                options["gallery_match"] = None
+                if not enrolled:
+                    options["gallery_error"] = "no_enrollment"
+            else:
+                options["gallery_match"] = {
+                    "client_id": match.client_id,
+                    "label": match.label,
+                    "score": match.score,
+                    "passed": match.passed,
+                    "embedding_id": match.embedding_id,
+                    "backend": engine.faces._backend,
+                }
+
         result = engine.run(
-            CheckType(check["type"]),
+            check_type,
             CheckContext(
                 document_image=doc_img,
                 live_photo_image=live_img,
                 client_name=client_name,
-                options=check.get("options"),
+                options=options,
             ),
         )
         await update_one(

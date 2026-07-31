@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from liveness.types import DocumentFields, StructuredDate
+from liveness.ml.document_types import detect_document_type_from_text, resolve_document_type
 
 
 @dataclass
@@ -104,14 +105,7 @@ class DocumentOcr:
             if candidates:
                 fields.full_name = candidates[0].title()
 
-        doc_type = None
-        joined = " ".join(texts)
-        if "PASSPORT" in joined or any(len(t.replace(" ", "")) == 44 for t in texts):
-            doc_type = "passport"
-        elif "DRIVER" in joined or "LICEN" in joined:
-            doc_type = "driving_license"
-        elif texts:
-            doc_type = "id_card"
+        doc_type = detect_document_type_from_text(texts)
 
         return OcrReport(
             fields=fields,

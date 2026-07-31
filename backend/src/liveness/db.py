@@ -40,6 +40,8 @@ async def init_db() -> None:
     await db.checks.create_index([("client_id", 1), ("created_at", -1)])
     await db.sessions.create_index("id", unique=True)
     await db.sessions.create_index("token", unique=True)
+    await db.face_embeddings.create_index("id", unique=True)
+    await db.face_embeddings.create_index("client_id")
 
 
 async def close_db() -> None:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { verifyUrl } from "@/lib/verifyApi";
 
@@ -38,13 +38,12 @@ const COUNTRIES = ["Ethiopia", "Kenya", "Uganda", "United Kingdom", "United Stat
 
 function VerifyHostedInner() {
   const params = useParams<{ token: string }>();
-  const search = useSearchParams();
-  const embed = search.get("embed") === "1";
   const [data, setData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [country, setCountry] = useState("Ethiopia");
-  const [mode, setMode] = useState<"device" | "phone" | "sdk">("device");
+  const [documentType, setDocumentType] = useState("fayda");
+  const [mode, setMode] = useState<"device" | "phone">("device");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [livePhotoFile, setLivePhotoFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
@@ -68,10 +67,6 @@ function VerifyHostedInner() {
   useEffect(() => {
     load().catch(console.error);
   }, [load]);
-
-  useEffect(() => {
-    if (search.get("pk") || embed) setMode("sdk");
-  }, [search, embed]);
 
   async function progress(stage: string) {
     setBusy(true);
@@ -105,6 +100,10 @@ function VerifyHostedInner() {
     try {
       const form = new FormData();
       form.append("file", file);
+      if (kind === "document") {
+        form.append("document_type", documentType);
+        form.append("issuing_country", country);
+      }
       const res = await fetch(verifyUrl(`/api/verify/${params.token}/${kind}`), {
         method: "POST",
         body: form,
@@ -114,7 +113,11 @@ function VerifyHostedInner() {
         throw new Error(err?.detail || `Unable to upload ${kind}`);
       }
       await load();
-      setMessage(kind === "document" ? "Document uploaded." : "Live photo uploaded.");
+      setMessage(
+        kind === "document"
+          ? "Document uploaded."
+          : "Live photo uploaded — face match and liveness scores are being calculated.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : `Unable to upload ${kind}`);
     } finally {
@@ -138,14 +141,14 @@ function VerifyHostedInner() {
       <div className="grid min-h-[480px] place-items-center bg-white px-4 text-center text-black">
         <div>
           <div className="text-lg font-semibold">Verification not found</div>
-          <p className="mt-2 text-sm text-neutral-600">{error || "Check the link or SDK token and try again."}</p>
+          <p className="mt-2 text-sm text-neutral-600">{error || "Check the link and try again."}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={embed ? "min-h-[640px] bg-white px-4 py-6 text-black" : "min-h-screen bg-white px-4 py-10 text-black"}>
+    <div className="min-h-screen bg-white px-4 py-10 text-black">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-3xl font-semibold md:text-4xl">Verify your identity now</h1>
         <p className="mt-2 text-sm text-neutral-600">
@@ -179,7 +182,7 @@ function VerifyHostedInner() {
                     <div className="font-medium">{label}</div>
                     <div className="text-neutral-500">
                       {id === "consent" && "Review and accept to proceed."}
-                      {id === "document" && "Provide your document using this device, phone, or SDK."}
+                      {id === "document" && "Upload your ID or passport photo."}
                       {id === "face" && "Capture a selfie / liveness step."}
                       {id === "screening" && "Finalize workflow checks."}
                       {id === "complete" && "Verification finishes and checks are marked complete."}
@@ -196,6 +199,8 @@ function VerifyHostedInner() {
             busy={busy}
             country={country}
             setCountry={setCountry}
+            documentType={documentType}
+            setDocumentType={setDocumentType}
             mode={mode}
             setMode={setMode}
             documentFile={documentFile}
@@ -207,7 +212,6 @@ function VerifyHostedInner() {
             onProgress={progress}
             onUpload={upload}
             completed={data.session.status === "completed"}
-            embed={embed}
           />
           {message ? <div className="mt-4 text-sm text-blue-700">{message}</div> : null}
         </div>
@@ -225,7 +229,11 @@ function VerifyHostedInner() {
                   </div>
                 </div>
                 {check.result?.document || check.result?.biometric ? (
-                  <div className="mt-2 grid gap-2 text-xs text-neutral-600 md:grid-cols-3">
+                  <div className="mt-2 grid gap-2 text-xs text-neutral-600 md:grid-cols-4">
+                    <div>
+                      <span className="font-medium">Doc type:</span>{" "}
+                      {check.result?.document?.document_type || "—"}
+                    </div>
                     <div>
                       <span className="font-medium">Doc quality:</span>{" "}
                       {typeof check.result?.document?.quality_score === "number"
@@ -270,6 +278,8 @@ function StageCard({
   busy,
   country,
   setCountry,
+  documentType,
+  setDocumentType,
   mode,
   setMode,
   documentFile,
@@ -281,15 +291,16 @@ function StageCard({
   onProgress,
   onUpload,
   completed,
-  embed,
 }: {
   session: SessionData["session"];
   currentStage: string;
   busy: boolean;
   country: string;
   setCountry: (v: string) => void;
-  mode: "device" | "phone" | "sdk";
-  setMode: (v: "device" | "phone" | "sdk") => void;
+  documentType: string;
+  setDocumentType: (v: string) => void;
+  mode: "device" | "phone";
+  setMode: (v: "device" | "phone") => void;
   documentFile: File | null;
   setDocumentFile: (v: File | null) => void;
   livePhotoFile: File | null;
@@ -299,13 +310,12 @@ function StageCard({
   onProgress: (stage: string) => void;
   onUpload: (kind: "document" | "live-photo") => void;
   completed: boolean;
-  embed: boolean;
 }) {
   if (completed || currentStage === "complete") {
     return (
       <div className="mt-8 rounded-xl bg-green-50 p-6">
         <h3 className="text-xl font-semibold text-green-700">Verification complete</h3>
-        <p className="mt-2 text-sm text-green-800">Checks finished and the backend stored real results for this client.</p>
+        <p className="mt-2 text-sm text-green-800">Checks finished and results were stored for this client.</p>
       </div>
     );
   }
@@ -329,6 +339,20 @@ function StageCard({
       <div className="mt-8 space-y-4">
         <h3 className="text-2xl font-semibold">Document verification</h3>
         <label className="block text-sm">
+          <span className="text-neutral-600">Document type</span>
+          <select
+            value={documentType}
+            onChange={(e) => setDocumentType(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2"
+          >
+            <option value="fayda">Fayda ID (Ethiopia digital ID)</option>
+            <option value="kebele_id">Kebele ID</option>
+            <option value="national_id">National ID card</option>
+            <option value="passport">Passport</option>
+            <option value="driving_license">Driving license</option>
+          </select>
+        </label>
+        <label className="block text-sm">
           <span className="text-neutral-600">Issuing country</span>
           <select
             value={country}
@@ -340,9 +364,8 @@ function StageCard({
             ))}
           </select>
         </label>
-        {!embed ? <ModePicker mode={mode} setMode={setMode} /> : null}
-        {mode === "phone" && !embed ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
-        {mode === "sdk" && !embed ? <SdkPanel token={mobileLink.split("/").pop() || ""} /> : null}
+        <ModePicker mode={mode} setMode={setMode} />
+        {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
         <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
           <span className="text-neutral-600">Upload document image</span>
           <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setDocumentFile(e.target.files?.[0] || null)} />
@@ -371,10 +394,11 @@ function StageCard({
     return (
       <div className="mt-8 space-y-4">
         <h3 className="text-2xl font-semibold">Face capture</h3>
-        <p className="text-sm text-neutral-600">Complete the selfie/liveness step using the same method.</p>
-        {!embed ? <ModePicker mode={mode} setMode={setMode} /> : null}
-        {mode === "phone" && !embed ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
-        {mode === "sdk" && !embed ? <SdkPanel token={mobileLink.split("/").pop() || ""} /> : null}
+        <p className="text-sm text-neutral-600">
+          Upload a selfie — we match it to your {documentType.replaceAll("_", " ")} photo and run liveness automatically.
+        </p>
+        <ModePicker mode={mode} setMode={setMode} />
+        {mode === "phone" ? <PhonePanel mobileLink={mobileLink} qrUrl={qrUrl} /> : null}
         <label className="block rounded-lg border border-dashed border-neutral-300 p-4 text-sm">
           <span className="text-neutral-600">Upload selfie / live photo</span>
           <input className="mt-2 block w-full" type="file" accept="image/*" onChange={(e) => setLivePhotoFile(e.target.files?.[0] || null)} />
@@ -418,20 +442,19 @@ function ModePicker({
   mode,
   setMode,
 }: {
-  mode: "device" | "phone" | "sdk";
-  setMode: (v: "device" | "phone" | "sdk") => void;
+  mode: "device" | "phone";
+  setMode: (v: "device" | "phone") => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-3">
+    <div className="grid gap-2 md:grid-cols-2">
       {[
         ["device", "Use this device"],
         ["phone", "Continue on phone"],
-        ["sdk", "Use SDK token"],
       ].map(([id, label]) => (
         <button
           key={id}
           type="button"
-          onClick={() => setMode(id as "device" | "phone" | "sdk")}
+          onClick={() => setMode(id as "device" | "phone")}
           className={`rounded-lg border px-3 py-2 text-sm ${mode === id ? "border-blue-600 bg-blue-50 text-blue-700" : "border-neutral-300"}`}
         >
           {label}
@@ -450,16 +473,6 @@ function PhonePanel({ mobileLink, qrUrl }: { mobileLink: string; qrUrl: string }
         <p className="text-sm text-neutral-600">Scan the QR code or copy the mobile link below.</p>
         <code className="block w-full break-all rounded bg-neutral-100 px-3 py-2 text-xs">{mobileLink}</code>
       </div>
-    </div>
-  );
-}
-
-function SdkPanel({ token }: { token: string }) {
-  return (
-    <div className="rounded-xl border border-neutral-200 p-4">
-      <p className="text-sm text-neutral-600">Use this hosted verification token in your Web/Mobile SDK flow.</p>
-      <code className="mt-2 block rounded bg-neutral-100 px-3 py-2 text-xs">{token}</code>
-      <pre className="mt-3 overflow-x-auto rounded bg-neutral-100 p-3 text-xs">{`const verificationToken = "${token}";`}</pre>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import math
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pymongo import ReturnDocument
 
 from app.db import get_database
@@ -21,6 +21,7 @@ from app.services.webhooks import (
     emit_session_event,
 )
 from liveness.api.worker import process_check
+from liveness.ml.document_types import normalize_document_type
 from liveness.storage import BlobStore
 
 router = APIRouter(tags=["dashboard"])
@@ -171,11 +172,21 @@ async def _sync_session_checks(
             if not session.get("document_id"):
                 raise HTTPException(status_code=400, detail="Document upload is required")
             patch["document_id"] = session["document_id"]
+            doc_row = await db.documents.find_one({"id": session["document_id"]}, {"_id": 0})
+            if doc_row and doc_row.get("document_type"):
+                patch["options"] = {"document_type": doc_row["document_type"]}
         elif stage == "face":
             if not session.get("document_id") or not session.get("live_photo_id"):
                 raise HTTPException(status_code=400, detail="Document and live photo are required")
             patch["document_id"] = session["document_id"]
             patch["live_photo_id"] = session["live_photo_id"]
+            doc_row = await db.documents.find_one({"id": session["document_id"]}, {"_id": 0})
+            opts: dict = {"source": "hosted_verification"}
+            if doc_row and doc_row.get("document_type"):
+                opts["document_type"] = doc_row["document_type"]
+            if doc_row and doc_row.get("issuing_country"):
+                opts["issuing_country"] = doc_row["issuing_country"]
+            patch["options"] = opts
         elif stage == "screening":
             patch["options"] = {"source": "hosted_verification"}
         await db.checks.update_one({"id": doc["id"]}, {"$set": patch})
@@ -666,40 +677,9 @@ async def create_session(
     await emit_session_event(user["org_id"], doc, "workflow.session.started")
     out = serialize(doc) or {}
     out["share_url"] = f"/verify/{token}"
+    out["share_token"] = token
     out["checks"] = [serialize(c) for c in checks]
     out["client"] = {"id": client["id"], "name": client.get("name"), "email": client.get("email")}
-
-    # SDK payload: publishable key + mount snippet for Web SDK embed.
-    hosted_origin = (body.get("hosted_origin") or "").rstrip("/")
-    from app.routers.integration import ensure_org_keys
-
-    await ensure_org_keys(user["org_id"])
-    access = "sandbox" if environment == "test" else "live"
-    web_key = await db.api_keys.find_one(
-        {"org_id": user["org_id"], "access": access, "kind": "web_sdk"},
-        {"_id": 0},
-    )
-    publishable = (web_key or {}).get("key") or ""
-    sdk_script = f"{hosted_origin}/sdk/v1.js" if hosted_origin else "/sdk/v1.js"
-    snippet = (
-        f'<div id="trustanova-root"></div>\n'
-        f'<script src="{sdk_script}"></script>\n'
-        f"<script>\n"
-        f"  const trustanova = new Trustanova({{\n"
-        f"    apiKey: '{publishable}',\n"
-        f"    environment: '{environment}',\n"
-        f"    hostedBase: '{hosted_origin or ''}',\n"
-        f"  }});\n"
-        f"  trustanova.mount('#trustanova-root', {{ token: '{token}' }});\n"
-        f"</script>"
-    )
-    out["sdk"] = {
-        "token": token,
-        "publishable_key": publishable,
-        "script_url": sdk_script,
-        "hosted_url": f"{hosted_origin}/verify/{token}" if hosted_origin else f"/verify/{token}",
-        "snippet": snippet,
-    }
     return out
 
 
@@ -748,7 +728,12 @@ async def get_verification_session(token: str):
 
 
 @router.post("/verify/{token}/document")
-async def upload_verification_document(token: str, file: UploadFile = File(...)):
+async def upload_verification_document(
+    token: str,
+    file: UploadFile = File(...),
+    document_type: str = Form(default=""),
+    issuing_country: str = Form(default=""),
+):
     db = get_database()
     session = await db.sessions.find_one({"share_token": token}, {"_id": 0})
     if not session:
@@ -756,6 +741,7 @@ async def upload_verification_document(token: str, file: UploadFile = File(...))
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty document file")
+    normalized_type = normalize_document_type(document_type) if document_type else None
     doc_id = new_id("doc_")
     key = f"documents/{doc_id}/{file.filename or 'document.jpg'}"
     BlobStore().put(key, data)
@@ -766,7 +752,8 @@ async def upload_verification_document(token: str, file: UploadFile = File(...))
         "client_id": session["client_id"],
         "session_id": session["id"],
         "storage_key": key,
-        "document_type": None,
+        "document_type": normalized_type,
+        "issuing_country": issuing_country or None,
         "status": "uploaded",
         "created_at": utcnow(),
     }
@@ -775,6 +762,16 @@ async def upload_verification_document(token: str, file: UploadFile = File(...))
         {"id": session["id"]},
         {"$set": {"document_id": doc_id, "updated_at": utcnow()}},
     )
+    session = {**session, "document_id": doc_id}
+    try:
+        await _sync_session_checks(
+            db=db,
+            org_id=session["org_id"],
+            session=session,
+            stage="document",
+        )
+    except HTTPException:
+        pass
     return serialize(document)
 
 
@@ -801,10 +798,38 @@ async def upload_verification_live_photo(token: str, file: UploadFile = File(...
         "created_at": utcnow(),
     }
     await db.live_photos.insert_one(photo)
+    session_patch = {"live_photo_id": photo_id, "updated_at": utcnow()}
     await db.sessions.update_one(
         {"id": session["id"]},
-        {"$set": {"live_photo_id": photo_id, "updated_at": utcnow()}},
+        {"$set": session_patch},
     )
+    session = {**session, **session_patch}
+
+    # Auto-run document↔selfie identity checks when both images are present (hosted flow).
+    if session.get("document_id"):
+        try:
+            await _sync_session_checks(
+                db=db,
+                org_id=session["org_id"],
+                session=session,
+                stage="face",
+            )
+            stages = session.get("stages") or ["consent", "document", "face", "complete"]
+            next_stage = _next_stage(stages, "face")
+            await db.sessions.update_one(
+                {"id": session["id"]},
+                {
+                    "$set": {
+                        "current_stage": next_stage,
+                        "status": "in_progress" if next_stage != "complete" else "completed",
+                        "updated_at": utcnow(),
+                        **({"completed_at": utcnow()} if next_stage == "complete" else {}),
+                    }
+                },
+            )
+        except HTTPException:
+            pass
+
     return serialize(photo)
 
 

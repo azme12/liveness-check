@@ -24,7 +24,7 @@ export default function ApiKeysPage() {
 
   const load = useCallback(async () => {
     const data = await api<{ items: ApiKey[] }>(
-      `/api/integration/api-keys?environment=${env}&kind=api`,
+      `/api/integration/api-keys?environment=${env}`,
     );
     setItems(data.items);
   }, [env]);

@@ -31,6 +31,13 @@ class ResourceOut(BaseModel):
     created_at: datetime
 
 
+class FaceEnrollOut(BaseModel):
+    embedding_id: str
+    client_id: str
+    label: str
+    backend: str
+
+
 class CheckCreate(BaseModel):
     client_id: str
     type: CheckType

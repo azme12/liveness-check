@@ -6,19 +6,15 @@ import { EnvBanner } from "@/components/EnvBanner";
 import { api } from "@/lib/api";
 import { useEnvironment } from "@/lib/environment";
 
-type SdkResponse = {
-  environment: string;
-  api_key?: { key: string } | null;
-  web_sdk_key?: { key: string } | null;
-};
+type ApiKey = { key: string };
 
 export default function ApiDocsPage() {
   const { env, label } = useEnvironment();
-  const [sdk, setSdk] = useState<SdkResponse | null>(null);
+  const [apiKey, setApiKey] = useState<ApiKey | null>(null);
 
   useEffect(() => {
-    api<SdkResponse>(`/api/integration/sdk?environment=${env}`)
-      .then(setSdk)
+    api<{ items: ApiKey[] }>(`/api/integration/api-keys?environment=${env}`)
+      .then((data) => setApiKey(data.items[0] || null))
       .catch(console.error);
   }, [env]);
 
@@ -40,8 +36,7 @@ export default function ApiDocsPage() {
           <strong className="text-[var(--text)]">{label}</strong> secret key.
         </p>
         <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 font-mono text-xs text-[var(--muted)]">
-          <div>X-Api-Key: {sdk?.api_key?.key ? `${sdk.api_key.key.slice(0, 12)}…` : "sk_…"}</div>
-          <div className="mt-1">Web SDK: {sdk?.web_sdk_key?.key ? `${sdk.web_sdk_key.key.slice(0, 12)}…` : "pk_…"}</div>
+          <div>X-Api-Key: {apiKey?.key ? `${apiKey.key.slice(0, 12)}…` : "sk_…"}</div>
         </div>
         <a
           href="http://127.0.0.1:8100/docs"

@@ -17,10 +17,17 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("./storage")
     models_dir: Path = Path("./models")
     face_match_threshold: float = 0.45
+    face_gallery_threshold: float = 0.45
     liveness_threshold: float = 0.5
     quality_threshold: float = 0.35
     session_ttl_minutes: int = 30
     allow_heuristic_fallback: bool = True
+    # OpenFace CLI (head pose / AU signals) — set LIVENESS_OPENFACE_BIN to enable
+    openface_bin: Path | None = None
+    openface_enabled: bool = False
+    openface_max_yaw: float = 25.0
+    openface_max_pitch: float = 20.0
+    openface_min_certainty: float = 0.5
 
 
 @lru_cache

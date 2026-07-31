@@ -261,24 +261,76 @@ async def emit_client_deleted(org_id: str, client_id: str) -> None:
     await emit_event(org_id, "client.deleted", {"id": client_id}, resource_type="clients")
 
 
-async def emit_check_lifecycle(org_id: str, check: dict[str, Any], event_type: str) -> None:
+OUTCOME_WEBHOOK_EVENT = {
+    "clear": "check.completed.clear",
+    "consider": "check.completed.attention",
+    "reject": "check.completed.rejected",
+}
+
+
+def _extract_check_scores(check: dict[str, Any]) -> dict[str, Any]:
+    result = check.get("result") or {}
+    if not isinstance(result, dict):
+        return {}
+    signals = result.get("signals") or {}
+    scores = signals.get("scores")
+    if isinstance(scores, dict):
+        return scores
+    document = result.get("document") or {}
+    biometric = result.get("biometric") or {}
+    return {
+        "document_type": document.get("document_type"),
+        "document_quality": document.get("quality_score"),
+        "document_valid": document.get("valid"),
+        "liveness_score": biometric.get("liveness_score"),
+        "liveness_passed": biometric.get("liveness") == "live",
+        "liveness_label": biometric.get("liveness"),
+        "face_match_score": biometric.get("face_match_score"),
+        "face_match_passed": biometric.get("face_match_passed"),
+        "face_detected": biometric.get("face_detected"),
+    }
+
+
+def _build_check_webhook_payload(check: dict[str, Any]) -> dict[str, Any]:
+    result = check.get("result") if isinstance(check.get("result"), dict) else None
+    scores = _extract_check_scores(check)
     payload = {
         "id": check.get("id"),
         "status": check.get("status"),
         "outcome": check.get("outcome"),
         "type": check.get("type"),
         "client_id": check.get("client_id"),
+        "session_id": check.get("session_id"),
+        "document_id": check.get("document_id"),
+        "live_photo_id": check.get("live_photo_id"),
+        "scores": scores,
         "createdAt": check.get("created_at"),
         "updatedAt": check.get("updated_at") or check.get("completed_at"),
     }
+    if result:
+        payload["result"] = result
+    return payload
+
+
+async def emit_check_lifecycle(org_id: str, check: dict[str, Any], event_type: str) -> None:
+    payload = _build_check_webhook_payload(check)
     await emit_event(org_id, event_type, payload, resource_type="checks")
     if event_type == "check.completed" and check.get("outcome"):
         outcome = str(check["outcome"]).lower()
-        specific = f"check.completed.{outcome}"
+        specific = OUTCOME_WEBHOOK_EVENT.get(outcome) or f"check.completed.{outcome}"
         from app.services.webhook_events import ALLOWED_EVENT_VALUES
 
         if specific in ALLOWED_EVENT_VALUES:
             await emit_event(org_id, specific, payload, resource_type="checks")
+        if outcome == "clear":
+            scores = payload.get("scores") or {}
+            if scores_passed_face_match(scores):
+                if "check.completed.match_confirmed" in ALLOWED_EVENT_VALUES:
+                    await emit_event(org_id, "check.completed.match_confirmed", payload, resource_type="checks")
+
+
+def scores_passed_face_match(scores: dict[str, Any]) -> bool:
+    return bool(scores.get("face_match_passed")) and bool(scores.get("liveness_passed"))
 
 
 async def emit_session_event(org_id: str, session: dict[str, Any], event_type: str) -> None:

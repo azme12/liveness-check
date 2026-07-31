@@ -15,6 +15,7 @@ from liveness.api.schemas import (
     CheckOut,
     ClientCreate,
     ClientOut,
+    FaceEnrollOut,
     ResourceOut,
     SessionConfigOut,
     SessionCreate,
@@ -24,6 +25,7 @@ from liveness.api.worker import process_check
 from liveness.checks import CheckEngine
 from liveness.config import Settings, get_settings
 from liveness.db import get_db, update_one
+from liveness.ml import FaceGallery, OpenFaceAnalyzer, decode_image
 from liveness.storage import BlobStore
 from liveness.types import CheckStatus, CheckType, SessionStatus, new_id, utc_now
 from liveness.version import __version__
@@ -76,6 +78,8 @@ def _session_out(s: dict[str, Any], *, status: SessionStatus | None = None) -> S
 
 @router.get("/health", tags=["system"], openapi_extra={"security": []})
 async def health(engine: CheckEngine = Depends(get_check_engine)):
+    openface = OpenFaceAnalyzer()
+    detected_bin = OpenFaceAnalyzer.detect_openface_install()
     return {
         "status": "ok",
         "version": __version__,
@@ -83,7 +87,14 @@ async def health(engine: CheckEngine = Depends(get_check_engine)):
             "ocr": engine.ocr._backend,
             "liveness": engine.liveness._backend,
             "face": engine.faces._backend,
+            "face_gallery": engine.faces._backend,
+            "active_liveness": openface.backend,
+            "openface_bin": detected_bin,
             "db": "mongodb",
+        },
+        "integrations": {
+            "face_recognition_system": "gallery_enroll_1n_via_insightface",
+            "openface": "cli_when_bin_set_else_opencv_fallback",
         },
     }
 
@@ -172,6 +183,43 @@ async def upload_live_photo(
     )
 
 
+@router.post(
+    "/v1/clients/{client_id}/face-enroll",
+    response_model=FaceEnrollOut,
+    dependencies=[Depends(require_api_key)],
+)
+async def enroll_face(
+    client_id: str,
+    file: UploadFile = File(...),
+    label: str | None = None,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    engine: CheckEngine = Depends(get_check_engine),
+):
+    """Enroll a reference face for 1:N authentication (Face Recognition System pattern)."""
+    client = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    image = decode_image(data)
+    gallery = FaceGallery(analyzer=engine.faces)
+    try:
+        result = await gallery.enroll(
+            client_id=client_id,
+            image=image,
+            label=label or client.get("full_name") or client_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return FaceEnrollOut(
+        embedding_id=result.embedding_id,
+        client_id=result.client_id,
+        label=result.label,
+        backend=result.backend,
+    )
+
+
 @router.post("/v1/checks", response_model=CheckOut, dependencies=[Depends(require_api_key)])
 async def create_check(
     body: CheckCreate,
@@ -184,10 +232,12 @@ async def create_check(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    if body.type in {CheckType.DOCUMENT, CheckType.IDENTITY} and not body.document_id:
+    if body.type in {CheckType.DOCUMENT, CheckType.IDENTITY, CheckType.ENHANCED_IDENTITY} and not body.document_id:
         raise HTTPException(status_code=400, detail="document_id required for this check type")
-    if body.type == CheckType.IDENTITY and not body.live_photo_id:
+    if body.type in {CheckType.IDENTITY, CheckType.ENHANCED_IDENTITY} and not body.live_photo_id:
         raise HTTPException(status_code=400, detail="live_photo_id required for identity_check")
+    if body.type == CheckType.FACE_AUTHENTICATION and not body.live_photo_id:
+        raise HTTPException(status_code=400, detail="live_photo_id required for face_authentication_check")
 
     now = utc_now()
     check = {

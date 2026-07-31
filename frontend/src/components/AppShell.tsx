@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BookOpen,
   ChevronDown,
-  Globe,
   KeyRound,
   LayoutGrid,
   List,
@@ -38,12 +37,11 @@ const NAV = [
 const INTEGRATION_NAV = [
   { href: "/integration", label: "Integration", icon: LayoutGrid },
   { href: "/integration/api-keys", label: "API keys", icon: KeyRound },
-  { href: "/integration/web", label: "Web SDK", icon: Globe },
   { href: "/integration/allowed-ips", label: "Allowed IPs", icon: Shield },
   { href: "/integration/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/integration/events", label: "Events", icon: List },
   { href: "/integration/logs", label: "Logs", icon: Logs },
-  { href: "/integration/mobile", label: "Mobile App", icon: Smartphone },
+  { href: "/integration/mobile", label: "Phone verify", icon: Smartphone },
   { href: "/integration/api-docs", label: "API Docs", icon: BookOpen },
 ];
 

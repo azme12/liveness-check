@@ -13,7 +13,7 @@ export function EnvBanner({ noun }: { noun: string }) {
       </span>
       <Badge tone={env === "live" ? "live" : "sandbox"}>{label}</Badge>
       <span className="text-xs">
-        Switch TEST / LIVE in the header to change API keys and Web SDK credentials.
+        Switch TEST / LIVE in the header to change API keys and environment data.
       </span>
     </div>
   );

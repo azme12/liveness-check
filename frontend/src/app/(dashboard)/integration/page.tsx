@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, FormInput, Smartphone, Sparkles, Globe } from "lucide-react";
+import { Building2, FormInput, Sparkles, Globe } from "lucide-react";
 import { PageHeader, Panel, Badge } from "@/components/AppShell";
 
 const CARDS = [
@@ -14,32 +14,24 @@ const CARDS = [
     href: "/workflows",
   },
   {
-    title: "Hosted Solution",
-    desc: "A hosted, fully customizable verification page.",
+    title: "Hosted page",
+    desc: "Send clients a link to upload document + selfie.",
     badge: "Under 10 mins",
     tone: "success" as const,
     icon: FormInput,
-    href: "/workflows",
-  },
-  {
-    title: "Web",
-    desc: "Drop our SDK straight into your own web app.",
-    badge: "Under 30 mins",
-    tone: "accent" as const,
-    icon: Globe,
-    href: "/integration/web",
-  },
-  {
-    title: "Mobile",
-    desc: "Native SDKs for iOS, Android and cross-platform.",
-    badge: "Under 30 mins",
-    tone: "accent" as const,
-    icon: Smartphone,
     href: "/integration/mobile",
   },
   {
-    title: "Other",
-    desc: "Build a fully custom backend integration.",
+    title: "Dashboard upload",
+    desc: "Upload photos directly from a client page.",
+    badge: "Immediate",
+    tone: "accent" as const,
+    icon: Globe,
+    href: "/clients",
+  },
+  {
+    title: "API",
+    desc: "Server-side integration with secret API keys and webhooks.",
     badge: "Varies",
     tone: "neutral" as const,
     icon: Building2,

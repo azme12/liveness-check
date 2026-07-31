@@ -17,7 +17,7 @@ from app.services.webhooks import emit_event
 router = APIRouter(prefix="/integration", tags=["integration"])
 
 Access = Literal["live", "sandbox"]
-Kind = Literal["api", "web_sdk"]
+Kind = Literal["api"]
 
 
 def _pages(total: int, page_size: int) -> int:
@@ -33,30 +33,22 @@ def _access_from_env(environment: str) -> Access:
 
 
 def _key_prefix(access: Access, kind: Kind) -> str:
-    if kind == "web_sdk":
-        return "pk_live_" if access == "live" else "pk_test_"
     return "sk_live_" if access == "live" else "sk_test_"
 
 
 async def ensure_org_keys(org_id: str) -> None:
-    """Make sure each org has secret + web SDK keys for sandbox and live."""
+    """Make sure each org has secret API keys for sandbox and live."""
     db = get_database()
     now = utcnow()
     needed = [
         ("live", "api", "10 requests per second"),
         ("sandbox", "api", "5 requests per second"),
-        ("live", "web_sdk", "browser / SDK only"),
-        ("sandbox", "web_sdk", "browser / SDK only"),
     ]
     for access, kind, rate in needed:
         filt: dict[str, Any] = {"org_id": org_id, "access": access}
-        # Older seeds had no kind — treat missing kind as api
-        if kind == "api":
-            existing = await db.api_keys.find_one(
-                {**filt, "$or": [{"kind": "api"}, {"kind": {"$exists": False}}]}
-            )
-        else:
-            existing = await db.api_keys.find_one({**filt, "kind": kind})
+        existing = await db.api_keys.find_one(
+            {**filt, "$or": [{"kind": "api"}, {"kind": {"$exists": False}}]}
+        )
         if existing:
             if "kind" not in existing:
                 await db.api_keys.update_one({"id": existing["id"]}, {"$set": {"kind": "api"}})
@@ -67,7 +59,7 @@ async def ensure_org_keys(org_id: str) -> None:
                 "org_id": org_id,
                 "access": access,
                 "kind": kind,
-                "key": f"{_key_prefix(access, kind)}{secrets.token_hex(16)}",  # type: ignore[arg-type]
+                "key": f"{_key_prefix(access, kind)}{secrets.token_hex(16)}",
                 "rate_limit": rate,
                 "created_at": now,
             }
@@ -77,19 +69,16 @@ async def ensure_org_keys(org_id: str) -> None:
 @router.get("/api-keys")
 async def api_keys(
     environment: str = Query("live", description="test or live"),
-    kind: str = Query("api", description="api or web_sdk"),
     user: dict = Depends(get_current_user),
 ):
     access = _access_from_env(environment)
-    if kind not in {"api", "web_sdk", "all"}:
-        raise HTTPException(status_code=400, detail="kind must be api, web_sdk, or all")
     db = get_database()
     await ensure_org_keys(user["org_id"])
-    filt: dict[str, Any] = {"org_id": user["org_id"], "access": access}
-    if kind == "api":
-        filt["$or"] = [{"kind": "api"}, {"kind": {"$exists": False}}]
-    elif kind == "web_sdk":
-        filt["kind"] = "web_sdk"
+    filt: dict[str, Any] = {
+        "org_id": user["org_id"],
+        "access": access,
+        "$or": [{"kind": "api"}, {"kind": {"$exists": False}}],
+    }
     items = await db.api_keys.find(filt, {"_id": 0}).to_list(20)
     return {
         "items": [serialize(i) for i in items],
@@ -104,73 +93,14 @@ async def refresh_key(key_id: str, user: dict = Depends(get_current_user)):
     doc = await db.api_keys.find_one({"id": key_id, "org_id": user["org_id"]})
     if not doc:
         raise HTTPException(status_code=404, detail="Key not found")
-    kind: Kind = "web_sdk" if doc.get("kind") == "web_sdk" else "api"
     access: Access = "live" if doc.get("access") == "live" else "sandbox"
-    new_key = f"{_key_prefix(access, kind)}{secrets.token_hex(16)}"
+    new_key = f"{_key_prefix(access, 'api')}{secrets.token_hex(16)}"
     await db.api_keys.update_one(
         {"id": key_id},
-        {"$set": {"key": new_key, "kind": kind, "created_at": utcnow()}},
+        {"$set": {"key": new_key, "kind": "api", "created_at": utcnow()}},
     )
     updated = await db.api_keys.find_one({"id": key_id}, {"_id": 0})
     return serialize(updated)
-
-
-@router.get("/sdk")
-async def sdk_credentials(
-    environment: str = Query("live"),
-    user: dict = Depends(get_current_user),
-):
-    """Return API + Web SDK credentials for the selected environment."""
-    access = _access_from_env(environment)
-    env_label = "test" if access == "sandbox" else "live"
-    db = get_database()
-    await ensure_org_keys(user["org_id"])
-
-    api_key = await db.api_keys.find_one(
-        {
-            "org_id": user["org_id"],
-            "access": access,
-            "$or": [{"kind": "api"}, {"kind": {"$exists": False}}],
-        },
-        {"_id": 0},
-    )
-    web_key = await db.api_keys.find_one(
-        {"org_id": user["org_id"], "access": access, "kind": "web_sdk"},
-        {"_id": 0},
-    )
-    api_secret = (api_key or {}).get("key") or ""
-    publishable = (web_key or {}).get("key") or ""
-    snippet = (
-        f"<!-- 1) Create a verification session in the dashboard (Start verification → Use SDK token),\n"
-        f"     or via your server with the secret sk_* key. You get a token like vfy_.... -->\n"
-        f'<div id="trustanova-root"></div>\n'
-        f'<script src="/sdk/v1.js"></script>\n'
-        f"<script>\n"
-        f"  const trustanova = new Trustanova({{\n"
-        f"    apiKey: '{publishable}',\n"
-        f"    environment: '{env_label}',\n"
-        f"  }});\n\n"
-        f"  // Pass the session token from Start verification (SDK method)\n"
-        f"  trustanova.mount('#trustanova-root', {{\n"
-        f"    token: 'vfy_your_session_token',\n"
-        f"  }});\n"
-        f"</script>"
-    )
-    return {
-        "environment": env_label,
-        "access": access,
-        "api_key": serialize(api_key),
-        "web_sdk_key": serialize(web_key),
-        "snippet": snippet,
-        "mobile": {
-            "qr_payload": f"trustanova://link?org={user['org_id']}&env={env_label}&pk={publishable}",
-            "deeplink": f"trustanova://link?org={user['org_id']}&env={env_label}",
-        },
-        "notes": {
-            "api": "Use the secret sk_* key only on your server (X-Api-Key).",
-            "web_sdk": "Load /sdk/v1.js in the browser with your public pk_* key, then mount with a session token from Start verification (SDK method).",
-        },
-    }
 
 
 @router.get("/allowed-ips")
@@ -396,16 +326,9 @@ async def mobile_info(
 ):
     access = _access_from_env(environment)
     env_label = "test" if access == "sandbox" else "live"
-    await ensure_org_keys(user["org_id"])
-    web_key = await get_database().api_keys.find_one(
-        {"org_id": user["org_id"], "access": access, "kind": "web_sdk"},
-        {"_id": 0},
-    )
-    pk = (web_key or {}).get("key") or ""
     return {
         "org_id": user["org_id"],
         "environment": env_label,
-        "web_sdk_key": serialize(web_key),
-        "qr_payload": f"trustanova://link?org={user['org_id']}&env={env_label}&pk={pk}",
-        "message": f"Scan to link a device using the {env_label} Web/Mobile SDK key.",
+        "message": "Create a session from a client page, then open the hosted /verify/{token} link on a phone.",
+        "verify_url_pattern": "/verify/vfy_YOUR_TOKEN",
     }

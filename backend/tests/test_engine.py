@@ -54,3 +54,67 @@ def test_screening_clear():
         CheckContext(client_name="Jane Doe"),
     )
     assert result.outcome == CheckOutcome.CLEAR
+
+
+def test_face_authentication_with_gallery_match():
+    engine = CheckEngine()
+    img = _blank_bgr()
+    result = engine.run(
+        CheckType.FACE_AUTHENTICATION,
+        CheckContext(
+            live_photo_image=img,
+            options={
+                "gallery_match": {
+                    "label": "Jane",
+                    "score": 0.92,
+                    "passed": True,
+                    "embedding_id": "femb_test",
+                    "backend": "histogram",
+                }
+            },
+        ),
+    )
+    assert result.outcome in {CheckOutcome.CLEAR, CheckOutcome.REJECT}
+    assert result.biometric is not None
+
+
+def test_face_authentication_no_enrollment():
+    engine = CheckEngine()
+    img = _blank_bgr()
+    result = engine.run(
+        CheckType.FACE_AUTHENTICATION,
+        CheckContext(
+            live_photo_image=img,
+            options={"gallery_error": "no_enrollment"},
+        ),
+    )
+    assert result.outcome == CheckOutcome.REJECT
+    assert "no_face_enrollment" in result.explainability
+
+
+def test_openface_opencv_fallback():
+    from liveness.ml.openface import OpenFaceAnalyzer
+
+    img = _blank_bgr()
+    report = OpenFaceAnalyzer().analyze(img, face_bbox=(160, 120, 320, 320))
+    assert report.backend == "opencv_pose_fallback"
+    assert report.detection_certainty is not None
+
+
+def test_identity_check_respects_document_type_hint():
+    engine = CheckEngine()
+    img = _blank_bgr()
+    result = engine.run(
+        CheckType.IDENTITY,
+        CheckContext(
+            document_image=img,
+            live_photo_image=img,
+            options={"document_type": "fayda"},
+        ),
+    )
+    assert result.document is not None
+    assert result.document.document_type == "fayda"
+    assert result.signals is not None
+    scores = result.signals.get("scores") or {}
+    assert scores.get("document_type") == "fayda"
+    assert "face_match_score" in scores

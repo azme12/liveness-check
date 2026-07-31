@@ -287,24 +287,6 @@ async def seed_if_empty() -> None:
                 "rate_limit": "5 requests per second",
                 "created_at": now - timedelta(days=100),
             },
-            {
-                "id": new_id("key_"),
-                "org_id": org_id,
-                "access": "live",
-                "kind": "web_sdk",
-                "key": f"pk_live_{secrets.token_hex(16)}",
-                "rate_limit": "browser / SDK only",
-                "created_at": now - timedelta(days=100),
-            },
-            {
-                "id": new_id("key_"),
-                "org_id": org_id,
-                "access": "sandbox",
-                "kind": "web_sdk",
-                "key": f"pk_test_{secrets.token_hex(16)}",
-                "rate_limit": "browser / SDK only",
-                "created_at": now - timedelta(days=100),
-            },
         ]
     )
 
