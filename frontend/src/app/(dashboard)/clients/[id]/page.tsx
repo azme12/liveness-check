@@ -427,14 +427,17 @@ export default function ClientDetailPage() {
       </div>
 
       {startOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
-          <div className="w-full max-w-4xl rounded-xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
-            <h2 className="text-lg font-semibold">Start verification</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              Keep the same client ID, choose a workflow, and create a secure verification link.
-            </p>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:items-center">
+          <div className="my-4 flex max-h-[calc(100dvh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-panel)]">
+            <div className="shrink-0 border-b border-[var(--border)] p-5 pb-4">
+              <h2 className="text-lg font-semibold">Start verification</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Keep the same client ID, choose a workflow, and create a secure verification link.
+              </p>
+            </div>
 
-            <div className="mt-4 grid gap-5 lg:grid-cols-3">
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              <div className="grid gap-5 lg:grid-cols-3 lg:items-start">
               <div>
                 <div className="mb-2 text-sm font-medium">Step 1: Choose method</div>
                 <div className="space-y-2">
@@ -731,9 +734,10 @@ export default function ClientDetailPage() {
                   </div>
                 )}
               </div>
+              </div>
             </div>
 
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="shrink-0 flex justify-end gap-2 border-t border-[var(--border)] p-5 pt-4">
               <button
                 type="button"
                 onClick={() => setStartOpen(false)}
