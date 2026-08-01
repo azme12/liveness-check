@@ -78,24 +78,40 @@ def _session_out(s: dict[str, Any], *, status: SessionStatus | None = None) -> S
 
 @router.get("/health", tags=["system"], openapi_extra={"security": []})
 async def health(engine: CheckEngine = Depends(get_check_engine)):
-    openface = OpenFaceAnalyzer()
-    detected_bin = OpenFaceAnalyzer.detect_openface_install()
+    liveness_ready = engine.liveness._backend == "minifas_onnx"
+    face_ready = engine.faces.production_ready
+    mesh_ready = engine.mesh.production_ready
+    ocr_ready = engine.ocr.production_ready
+    ready = liveness_ready and face_ready and mesh_ready and ocr_ready
     return {
-        "status": "ok",
+        "status": "ok" if ready else "degraded",
+        "ready": ready,
         "version": __version__,
         "backends": {
             "ocr": engine.ocr._backend,
             "liveness": engine.liveness._backend,
             "face": engine.faces._backend,
             "face_gallery": engine.faces._backend,
-            "active_liveness": openface.backend,
-            "openface_bin": detected_bin,
+            "face_mesh": engine.mesh._backend,
+            "active_liveness": OpenFaceAnalyzer().backend,
+            "openface_bin": OpenFaceAnalyzer.detect_openface_install(),
             "db": "mongodb",
         },
         "integrations": {
-            "face_recognition_system": "gallery_enroll_1n_via_insightface",
-            "openface": "cli_when_bin_set_else_opencv_fallback",
+            "face_recognition_system": "mongodb_1n_gallery",
+            "document_authenticity": "opencv_forensics_v1_review_signal",
+            "risk_policy": "enterprise-risk-v1",
         },
+        "warnings": [
+            warning
+            for warning, active in (
+                ("minifas_not_loaded", not liveness_ready),
+                ("production_face_matcher_not_loaded", not face_ready),
+                ("mediapipe_mesh_not_loaded", not mesh_ready),
+                ("ocr_engine_not_loaded", not ocr_ready),
+            )
+            if active
+        ],
     }
 
 

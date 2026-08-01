@@ -30,20 +30,23 @@ async def lifespan(_: FastAPI):
         await seed_if_empty()
     start_webhook_worker()
 
-    def _warm_face_model() -> None:
+    def _warm_ml_models() -> None:
         try:
             from liveness.config import get_settings as get_liveness_settings
-
-            if not get_liveness_settings().insightface_enabled:
-                return
             from liveness.ml.face import get_face_analyzer
+            from liveness.ml.face_mesh import get_face_mesh_analyzer
+            from liveness.ml.liveness import LivenessDetector
 
+            ls = get_liveness_settings()
             get_face_analyzer()
+            if ls.mediapipe_enabled:
+                get_face_mesh_analyzer()
+            LivenessDetector()
         except Exception:
             pass
 
-    # Do not block startup — InsightFace load can take 60s+ on Render free CPU.
-    threading.Thread(target=_warm_face_model, daemon=True).start()
+    # Do not block startup — model load can take time on Render free CPU.
+    threading.Thread(target=_warm_ml_models, daemon=True).start()
     yield
     stop_webhook_worker()
     await close_dashboard_db()

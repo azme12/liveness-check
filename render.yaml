@@ -24,13 +24,13 @@ services:
         sync: false
       - key: LIVENESS_MONGODB_DB
         value: liveness
-      - key: LIVENESS_ALLOW_HEURISTIC_FALLBACK
+      - key: LIVENESS_STRICT_PRODUCTION
         value: "true"
-      # OpenFace CLI is not shipped in Docker — use InsightFace pose + bbox proxy on Render.
+      - key: LIVENESS_MEDIAPIPE_ENABLED
+        value: "true"
       - key: LIVENESS_OPENFACE_AUTO_DETECT
         value: "false"
       - key: LIVENESS_OPENFACE_ENABLED
         value: "false"
-      # Render free tier (512MB RAM) — InsightFace OOMs; use OpenCV fallback.
       - key: LIVENESS_INSIGHTFACE_ENABLED
         value: "false"

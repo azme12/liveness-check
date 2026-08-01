@@ -1,9 +1,4 @@
-"""1:N face gallery — InsightFace embeddings (Face Recognition System pattern).
-
-The external Face_Recognition_System project uses MobileFace + index.bin on disk.
-We use the same cosine-threshold idea but store embeddings in MongoDB and reuse
-InsightFace so scores stay compatible with identity_check face matching.
-"""
+"""1:N face gallery — InsightFace or SFace embeddings stored in MongoDB."""
 
 from __future__ import annotations
 
@@ -43,8 +38,6 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class FaceGallery:
-    """Enroll and search face embeddings per client (1:N within client scope)."""
-
     def __init__(self, analyzer: FaceAnalyzer | None = None) -> None:
         self.analyzer = analyzer or get_face_analyzer()
         self.threshold = get_settings().face_gallery_threshold
@@ -56,7 +49,63 @@ class FaceGallery:
         face = faces[0]
         if face.embedding is not None:
             return face.embedding, self.analyzer._backend
-        return self.analyzer._embedding_fallback(image, face), f"{self.analyzer._backend}_fallback"
+        sface = self.analyzer._sface_embedding(image, face)
+        if sface is not None:
+            return sface, "opencv_sface"
+        return None, "sface_required"
+
+    async def search_client(
+        self,
+        *,
+        client_id: str,
+        image: np.ndarray,
+    ) -> GalleryMatch | None:
+        embedding, _ = self.embed_image(image)
+        if embedding is None:
+            return None
+        return await self._search_embeddings(embedding, query={"client_id": client_id})
+
+    async def search_duplicates(
+        self,
+        *,
+        org_id: str,
+        image: np.ndarray,
+        exclude_client_id: str | None = None,
+        threshold: float | None = None,
+    ) -> GalleryMatch | None:
+        embedding, _ = self.embed_image(image)
+        if embedding is None:
+            return None
+        query: dict[str, Any] = {"org_id": org_id}
+        if exclude_client_id:
+            query["client_id"] = {"$ne": exclude_client_id}
+        return await self._search_embeddings(embedding, query=query, threshold=threshold)
+
+    async def _search_embeddings(
+        self,
+        embedding: np.ndarray,
+        *,
+        query: dict[str, Any],
+        threshold: float | None = None,
+    ) -> GalleryMatch | None:
+        thr = self.threshold if threshold is None else threshold
+        cursor = get_database().face_embeddings.find(query, {"_id": 0})
+        best: GalleryMatch | None = None
+        async for row in cursor:
+            stored = np.asarray(row["embedding"], dtype=np.float32)
+            if stored.shape != embedding.shape:
+                continue
+            score = _cosine(embedding, stored)
+            candidate = GalleryMatch(
+                client_id=row.get("client_id") or "",
+                label=row.get("label") or row.get("client_id") or "",
+                score=score,
+                passed=score >= thr,
+                embedding_id=row["id"],
+            )
+            if best is None or candidate.score > best.score:
+                best = candidate
+        return best
 
     async def enroll(
         self,
@@ -65,6 +114,7 @@ class FaceGallery:
         image: np.ndarray,
         label: str | None = None,
         source_id: str | None = None,
+        org_id: str | None = None,
     ) -> GalleryEnrollResult:
         embedding, backend = self.embed_image(image)
         if embedding is None:
@@ -79,6 +129,8 @@ class FaceGallery:
             "backend": backend,
             "created_at": utc_now(),
         }
+        if org_id:
+            doc["org_id"] = org_id
         await get_database().face_embeddings.insert_one(doc)
         return GalleryEnrollResult(
             embedding_id=doc["id"],
@@ -87,34 +139,28 @@ class FaceGallery:
             backend=backend,
         )
 
-    async def search_client(
-        self,
-        *,
-        client_id: str,
-        image: np.ndarray,
-    ) -> GalleryMatch | None:
-        """Match a selfie against all embeddings enrolled for this client."""
-        embedding, _ = self.embed_image(image)
-        if embedding is None:
-            return None
-
-        cursor = get_database().face_embeddings.find({"client_id": client_id}, {"_id": 0})
-        best: GalleryMatch | None = None
-        async for row in cursor:
-            stored = np.asarray(row["embedding"], dtype=np.float32)
-            score = _cosine(embedding, stored)
-            passed = score >= self.threshold
-            candidate = GalleryMatch(
-                client_id=client_id,
-                label=row.get("label") or client_id,
-                score=score,
-                passed=passed,
-                embedding_id=row["id"],
-            )
-            if best is None or candidate.score > best.score:
-                best = candidate
-        return best
-
     async def has_enrollment(self, client_id: str) -> bool:
         doc = await find_one("face_embeddings", {"client_id": client_id})
         return doc is not None
+
+    async def ensure_enrolled(
+        self,
+        *,
+        client_id: str,
+        org_id: str,
+        image: np.ndarray,
+        source_id: str | None = None,
+        label: str | None = None,
+    ) -> GalleryEnrollResult | None:
+        if await self.has_enrollment(client_id):
+            return None
+        try:
+            return await self.enroll(
+                client_id=client_id,
+                org_id=org_id,
+                image=image,
+                source_id=source_id,
+                label=label,
+            )
+        except ValueError:
+            return None

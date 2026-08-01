@@ -85,6 +85,8 @@ class DocumentResult(BaseModel):
     valid: bool = False
     mrz_valid: bool | None = None
     quality_score: float = 0.0
+    authenticity_score: float | None = None
+    authenticity_passed: bool | None = None
     document_type: str | None = None
     fields: DocumentFields = Field(default_factory=DocumentFields)
     warnings: list[str] = Field(default_factory=list)

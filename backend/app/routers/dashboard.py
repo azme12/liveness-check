@@ -5,7 +5,7 @@ import math
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pymongo import ReturnDocument
 
@@ -23,6 +23,7 @@ from app.services.webhooks import (
     emit_session_event,
 )
 from liveness.api.worker import process_check
+from liveness.ml.device_intel import build_fingerprint
 from liveness.ml.document_types import normalize_document_type
 from liveness.ml.quality import decode_image
 from liveness.ml.selfie_profile import validate_selfie_profile
@@ -930,6 +931,7 @@ async def upload_verification_document(
 async def upload_verification_live_photo(
     token: str,
     background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
 ):
     db = get_database()
@@ -960,6 +962,19 @@ async def upload_verification_live_photo(
             },
         )
 
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+        request.client.host if request.client else None
+    )
+    ua = request.headers.get("user-agent")
+    device = build_fingerprint(
+        ip=ip,
+        user_agent=ua,
+        client_hints={
+            "platform": request.headers.get("sec-ch-ua-platform"),
+            "language": request.headers.get("accept-language", "")[:80] or None,
+        },
+    ).to_dict()
+
     photo_id = new_id("pho_")
     key = f"live_photos/{photo_id}/{file.filename or 'selfie.jpg'}"
     BlobStore().put(key, data)
@@ -971,6 +986,7 @@ async def upload_verification_live_photo(
         "session_id": session["id"],
         "storage_key": key,
         "status": "uploaded",
+        "device": device,
         "created_at": utcnow(),
     }
     await db.live_photos.insert_one(photo)
@@ -1118,6 +1134,50 @@ async def list_checks(
         "pages": _pages(total, page_size),
         "environment": environment,
     }
+
+
+@router.patch("/checks/{check_id}/review")
+async def review_check(
+    check_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    environment: str = Depends(environment_query),
+):
+    """Record a human decision without losing the original machine result."""
+    decision = str(body.get("decision") or "").lower()
+    if decision not in {"clear", "reject"}:
+        raise HTTPException(status_code=400, detail="decision must be clear or reject")
+    notes = str(body.get("notes") or "").strip()[:2000]
+    db = get_database()
+    filt = {
+        **with_org_env(user["org_id"], environment),
+        "id": check_id,
+    }
+    check = await db.checks.find_one(filt, {"_id": 0})
+    if not check:
+        raise HTTPException(status_code=404, detail="Check not found")
+    now = utcnow()
+    review = {
+        "decision": decision,
+        "notes": notes,
+        "reviewed_by": user.get("id") or user.get("email"),
+        "reviewed_at": now,
+        "machine_outcome": check.get("outcome"),
+    }
+    updated = await db.checks.find_one_and_update(
+        filt,
+        {
+            "$set": {
+                "outcome": decision,
+                "review": review,
+                "updated_at": now,
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0},
+    )
+    await emit_check_lifecycle(user["org_id"], updated, "check.updated")
+    return serialize(updated)
 
 
 @router.get("/workflows")

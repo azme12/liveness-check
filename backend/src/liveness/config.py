@@ -21,9 +21,14 @@ class Settings(BaseSettings):
     liveness_threshold: float = 0.5
     quality_threshold: float = 0.35
     session_ttl_minutes: int = 30
-    allow_heuristic_fallback: bool = True
-    # Disable on Render free tier (512MB) — uses OpenCV Haar + histogram embeddings instead.
+    # Production requires real ML backends — no heuristic or proxy fallbacks.
+    strict_production: bool = True
+    # Soft duplicate alert threshold (hard reject uses higher bar in fraud.py)
+    duplicate_face_threshold: float = 0.55
+    # Disable on Render free tier (512MB) — YuNet + SFace used instead.
     insightface_enabled: bool = True
+    # Optional MediaPipe Face Mesh (EAR/MAR/pose). Required in production.
+    mediapipe_enabled: bool = True
     # OpenFace CLI (head pose / AU signals) — set LIVENESS_OPENFACE_BIN to enable
     openface_bin: Path | None = None
     openface_enabled: bool = False

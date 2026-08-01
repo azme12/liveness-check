@@ -1,8 +1,4 @@
-"""OpenFace integration — landmarks, head pose, and AU signals for active liveness.
-
-When FaceLandmarkImg is available we parse CSV pose columns (radians → degrees).
-Otherwise InsightFace pose or a lightweight bbox proxy is used for frontal gating.
-"""
+"""OpenFace CLI integration — optional head pose when binary is installed."""
 
 from __future__ import annotations
 
@@ -16,7 +12,6 @@ from functools import lru_cache
 from pathlib import Path
 
 import cv2
-import numpy as np
 
 from liveness.config import get_settings
 
@@ -49,7 +44,6 @@ def evaluate_head_pose(
     certainty: float | None,
     limits: HeadPoseLimits,
 ) -> bool:
-    """Return True when head is frontal enough for KYC selfie capture."""
     if certainty is not None and certainty < limits.min_certainty:
         return False
     if yaw is not None and abs(yaw) > limits.max_yaw:
@@ -89,41 +83,76 @@ class OpenFaceAnalyzer:
 
     @property
     def backend(self) -> str:
-        if self._use_cli():
-            return "openface_cli"
-        return "opencv_pose_fallback"
+        return "openface_cli" if self._use_cli() else "unavailable"
 
     def _use_cli(self) -> bool:
         return self.bin is not None and (self.enabled or self.auto_detect)
 
     def analyze(
         self,
-        image: np.ndarray,
+        image,
         face_bbox: tuple[int, int, int, int] | None = None,
         *,
         insightface_pose: tuple[float, float, float] | None = None,
         limits: HeadPoseLimits | None = None,
     ) -> ActiveLivenessReport:
+        del face_bbox
         pose_limits = limits or self.limits
         if self._use_cli():
             try:
                 return self._analyze_openface(image, pose_limits)
             except Exception as exc:
-                return self._analyze_fallback(
-                    image,
-                    face_bbox,
-                    pose_limits,
-                    insightface_pose=insightface_pose,
-                    error=str(exc),
+                if insightface_pose is not None:
+                    return self._pose_report(
+                        insightface_pose,
+                        pose_limits,
+                        backend="insightface_pose",
+                        error=str(exc),
+                    )
+                return ActiveLivenessReport(
+                    passed=False,
+                    backend="unavailable",
+                    details={"error": str(exc)},
                 )
-        return self._analyze_fallback(
-            image,
-            face_bbox,
-            pose_limits,
-            insightface_pose=insightface_pose,
+        if insightface_pose is not None:
+            return self._pose_report(insightface_pose, pose_limits, backend="insightface_pose")
+        return ActiveLivenessReport(
+            passed=False,
+            backend="unavailable",
+            details={"error": "openface_not_configured"},
         )
 
-    def _analyze_openface(self, image: np.ndarray, limits: HeadPoseLimits) -> ActiveLivenessReport:
+    def _pose_report(
+        self,
+        pose: tuple[float, float, float],
+        limits: HeadPoseLimits,
+        *,
+        backend: str,
+        error: str | None = None,
+    ) -> ActiveLivenessReport:
+        yaw, pitch, roll = pose
+        certainty = 0.85
+        passed = evaluate_head_pose(
+            yaw=yaw,
+            pitch=pitch,
+            roll=roll,
+            certainty=certainty,
+            limits=limits,
+        )
+        details: dict = {"source": backend}
+        if error:
+            details["openface_error"] = error
+        return ActiveLivenessReport(
+            passed=passed,
+            backend=backend,
+            head_pose_yaw=yaw,
+            head_pose_pitch=pitch,
+            head_pose_roll=roll,
+            detection_certainty=certainty,
+            details=details,
+        )
+
+    def _analyze_openface(self, image, limits: HeadPoseLimits) -> ActiveLivenessReport:
         assert self.bin is not None
         with tempfile.TemporaryDirectory() as tmp:
             img_path = Path(tmp) / "frame.jpg"
@@ -148,14 +177,12 @@ class OpenFaceAnalyzer:
                 raise RuntimeError("OpenFace produced no CSV output")
 
             row = self._parse_csv_row(csv_files[0])
-            # OpenFace CSV pose_Rx/Ry/Rz are radians (pitch/yaw/roll).
             yaw = self._pose_degrees(row.get("pose_Ry"))
             pitch = self._pose_degrees(row.get("pose_Rx"))
             roll = self._pose_degrees(row.get("pose_Rz"))
             certainty = row.get("confidence")
             au45 = row.get("AU45_r") or row.get("AU45_c")
             blink = float(au45) > 0.2 if au45 is not None else None
-
             passed = evaluate_head_pose(
                 yaw=yaw,
                 pitch=pitch,
@@ -163,7 +190,6 @@ class OpenFaceAnalyzer:
                 certainty=certainty,
                 limits=limits,
             )
-
             return ActiveLivenessReport(
                 passed=passed,
                 backend="openface_cli",
@@ -179,7 +205,6 @@ class OpenFaceAnalyzer:
     def _pose_degrees(value: float | None) -> float | None:
         if value is None:
             return None
-        # Values > 2π are already degrees (fallback proxies); OpenFace uses radians.
         if abs(value) <= math.pi + 0.01:
             return math.degrees(value)
         return value
@@ -201,108 +226,12 @@ class OpenFaceAnalyzer:
                 out[key] = None
         return out
 
-    def _analyze_fallback(
-        self,
-        image: np.ndarray,
-        face_bbox: tuple[int, int, int, int] | None,
-        limits: HeadPoseLimits,
-        *,
-        insightface_pose: tuple[float, float, float] | None = None,
-        error: str | None = None,
-    ) -> ActiveLivenessReport:
-        """Estimate frontal pose from InsightFace or face centering."""
-        if insightface_pose is not None:
-            yaw, pitch, roll = insightface_pose
-            certainty = 0.85
-            passed = evaluate_head_pose(
-                yaw=yaw,
-                pitch=pitch,
-                roll=roll,
-                certainty=certainty,
-                limits=limits,
-            )
-            details: dict = {"source": "insightface_pose"}
-            if error:
-                details["openface_error"] = error
-            return ActiveLivenessReport(
-                passed=passed,
-                backend="insightface_pose",
-                head_pose_yaw=yaw,
-                head_pose_pitch=pitch,
-                head_pose_roll=roll,
-                blink_detected=None,
-                detection_certainty=certainty,
-                details=details,
-            )
-
-        h, w = image.shape[:2]
-        if face_bbox is None:
-            side = int(min(h, w) * 0.5)
-            x = (w - side) // 2
-            y = (h - side) // 2
-            face_bbox = (x, y, side, side)
-
-        x, y, bw, bh = face_bbox
-        cx = x + bw / 2
-        cy = y + bh / 2
-        yaw_proxy = ((cx - w / 2) / max(w / 2, 1)) * 35.0
-        pitch_proxy = ((cy - h / 2) / max(h / 2, 1)) * 25.0
-        roll_proxy = self._estimate_roll_proxy(image, face_bbox)
-        size_ratio = (bw * bh) / max(w * h, 1)
-        certainty = float(np.clip(size_ratio * 8.0, 0.2, 0.95))
-
-        passed = evaluate_head_pose(
-            yaw=yaw_proxy,
-            pitch=pitch_proxy,
-            roll=roll_proxy,
-            certainty=certainty,
-            limits=limits,
-        ) and size_ratio >= 0.04
-
-        details = {"size_ratio": size_ratio, "source": "bbox_proxy"}
-        if error:
-            details["openface_error"] = error
-
-        return ActiveLivenessReport(
-            passed=passed,
-            backend="opencv_pose_fallback",
-            head_pose_yaw=yaw_proxy,
-            head_pose_pitch=pitch_proxy,
-            head_pose_roll=roll_proxy,
-            blink_detected=None,
-            detection_certainty=certainty,
-            details=details,
-        )
-
-    @staticmethod
-    def _estimate_roll_proxy(image: np.ndarray, face_bbox: tuple[int, int, int, int]) -> float:
-        """Rough roll from eye-line tilt using upper-face edges."""
-        x, y, w, h = face_bbox
-        H, W = image.shape[:2]
-        x1, y1 = max(0, x), max(0, y)
-        x2, y2 = min(W, x + w), min(H, y + int(h * 0.55))
-        crop = image[y1:y2, x1:x2]
-        if crop.size == 0:
-            return 0.0
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 60, 160)
-        ys, xs = np.where(edges > 0)
-        if len(xs) < 40:
-            return 0.0
-        coeffs = np.polyfit(xs.astype(np.float64), ys.astype(np.float64), 1)
-        angle_rad = math.atan(coeffs[0])
-        return math.degrees(angle_rad)
-
     @staticmethod
     def detect_openface_install() -> str | None:
-        """Try common locations for OpenFace binaries on this machine."""
         settings = get_settings()
         if settings.openface_bin and Path(settings.openface_bin).exists():
             return str(settings.openface_bin)
-
         candidates = [
-            Path("/home/admn/Documents/mine/OpenFace-master (2)/OpenFace-master/build/bin/FaceLandmarkImg"),
-            Path("/home/admn/Documents/mine/OpenFace-master (2)/OpenFace-master/build/bin/FeatureExtraction"),
             Path.home() / "OpenFace/build/bin/FaceLandmarkImg",
             shutil.which("FaceLandmarkImg") or "",
             shutil.which("FeatureExtraction") or "",

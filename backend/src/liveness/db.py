@@ -48,6 +48,8 @@ async def init_db() -> None:
     await db.sessions.create_index("share_token", unique=True, sparse=True)
     await db.face_embeddings.create_index("id", unique=True)
     await db.face_embeddings.create_index("client_id")
+    await db.face_embeddings.create_index([("org_id", 1), ("client_id", 1)])
+    await db.live_photos.create_index([("org_id", 1), ("device.fingerprint_hash", 1), ("created_at", -1)])
 
 
 async def close_db() -> None:

@@ -38,8 +38,19 @@ type Check = {
   monitoring?: string;
   created_at: string;
   completed_at?: string;
+  review?: {
+    decision: "clear" | "reject";
+    notes?: string;
+    reviewed_at?: string;
+  };
   result?: {
-    document?: { quality_score?: number; document_type?: string | null };
+    risk_score?: number | null;
+    document?: {
+      quality_score?: number;
+      authenticity_score?: number | null;
+      authenticity_passed?: boolean | null;
+      document_type?: string | null;
+    };
     biometric?: {
       liveness?: string;
       liveness_score?: number;
@@ -252,6 +263,18 @@ export default function ClientDetailPage() {
     await refreshVerifyChecksForToken(verifyToken);
   }
 
+  async function reviewCheck(checkId: string, decision: "clear" | "reject") {
+    const notes = window.prompt("Review notes (optional)") || "";
+    await api<Check>(`/api/checks/${checkId}/review`, {
+      method: "PATCH",
+      body: JSON.stringify({ decision, notes }),
+    });
+    const refreshed = await api<Paginated<Check>>(
+      `/api/clients/${params.id}/checks?page=1&page_size=10`,
+    );
+    setChecks(refreshed);
+  }
+
   async function uploadVerificationPhoto(
     kind: "document" | "live-photo",
     fileOverride?: File | null,
@@ -432,7 +455,7 @@ export default function ClientDetailPage() {
 
         <Panel className="p-5">
           {tab === "general" ? <GeneralTab client={client} /> : null}
-          {tab === "checks" ? <ChecksTab data={checks} /> : null}
+          {tab === "checks" ? <ChecksTab data={checks} onReview={reviewCheck} /> : null}
           {tab === "sessions" ? <SessionsTab data={sessions} /> : null}
           {tab === "documents" ? <DocumentsTab data={documents} /> : null}
           {tab !== "general" && tab !== "checks" && tab !== "sessions" && tab !== "documents" ? (
@@ -706,6 +729,14 @@ export default function ClientDetailPage() {
                                 ? Math.round(Number(scores.face_match_score) * 100)
                                 : "—"}
                           </div>
+                          <div>
+                            Fraud risk:{" "}
+                            {typeof scores?.fraudRiskScore === "number"
+                              ? scores.fraudRiskScore
+                              : typeof identityCheck.result?.risk_score === "number"
+                                ? Math.round(Number(identityCheck.result.risk_score))
+                                : "—"}
+                          </div>
                         </div>
                         <p className="mt-2 text-[10px] text-[var(--muted)]">
                           Webhook events <code className="text-white">check.completed</code> and{" "}
@@ -847,7 +878,13 @@ function GeneralTab({ client }: { client: Client }) {
   );
 }
 
-function ChecksTab({ data }: { data: Paginated<Check> | null }) {
+function ChecksTab({
+  data,
+  onReview,
+}: {
+  data: Paginated<Check> | null;
+  onReview: (checkId: string, decision: "clear" | "reject") => Promise<void>;
+}) {
   return (
     <div>
       <h2 className="mb-4 text-lg font-semibold">Checks</h2>
@@ -859,8 +896,10 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
             <th className="py-2 text-left font-medium">Outcome</th>
             <th className="py-2 text-left font-medium">Face match</th>
             <th className="py-2 text-left font-medium">Liveness</th>
+            <th className="py-2 text-left font-medium">Fraud</th>
             <th className="py-2 text-left font-medium">Angles / matcher</th>
             <th className="py-2 text-left font-medium">Completed</th>
+            <th className="py-2 text-left font-medium">Review</th>
           </tr>
         </thead>
         <tbody>
@@ -872,6 +911,8 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
               | {
                   face_analysis?: Record<string, unknown>;
                   active_liveness?: Record<string, unknown>;
+                  fraud?: { risk_score?: number; flags?: string[] };
+                  active_challenge?: { required?: boolean; challenge?: string; passed?: boolean | null };
                   reject_reasons?: string[];
                 }
               | undefined;
@@ -882,6 +923,12 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
             const roll = fa?.selfie_roll ?? pose?.head_pose_roll;
             const matcher = String(fa?.backend || "—");
             const reasons = signals?.reject_reasons || [];
+            const fraudRisk =
+              typeof s?.fraudRiskScore === "number"
+                ? s.fraudRiskScore
+                : typeof c.result?.risk_score === "number"
+                  ? Math.round(Number(c.result.risk_score))
+                  : signals?.fraud?.risk_score;
             return (
             <tr key={c.id} className="border-b border-[var(--border)] last:border-0">
               <td className="py-3">{c.type.replaceAll("_", " ")}</td>
@@ -899,6 +946,12 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
               <td className="py-3 text-[var(--muted)]">
                 {typeof live === "number" ? live.toFixed(2) : "—"}
               </td>
+              <td className="py-3 text-[var(--muted)]">
+                {typeof fraudRisk === "number" ? fraudRisk : "—"}
+                {signals?.fraud?.flags?.length ? (
+                  <div className="text-[10px] text-amber-400">{signals.fraud.flags[0]}</div>
+                ) : null}
+              </td>
               <td className="py-3 text-xs text-[var(--muted)]">
                 <div>{matcher}</div>
                 <div>
@@ -906,14 +959,45 @@ function ChecksTab({ data }: { data: Paginated<Check> | null }) {
                   P{typeof pitch === "number" ? pitch.toFixed(0) : "—"}/
                   R{typeof roll === "number" ? roll.toFixed(0) : "—"}°
                 </div>
+                {signals?.active_challenge?.required ? (
+                  <div className="text-amber-400">
+                    challenge:{String(signals.active_challenge.challenge || "?")}
+                  </div>
+                ) : null}
                 {reasons.length ? <div className="text-red-400">{reasons[0]}</div> : null}
               </td>
               <td className="py-3 text-[var(--muted)]">{formatDate(c.completed_at || c.created_at)}</td>
+              <td className="py-3">
+                {c.outcome === "consider" && !c.review ? (
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      className="rounded border border-emerald-700 px-2 py-1 text-xs text-emerald-400"
+                      onClick={() => void onReview(c.id, "clear")}
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-red-800 px-2 py-1 text-xs text-red-400"
+                      onClick={() => void onReview(c.id, "reject")}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                ) : c.review ? (
+                  <span className="text-xs capitalize text-[var(--muted)]">
+                    Reviewed: {c.review.decision}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </td>
             </tr>
           );})}
           {!data?.items?.length ? (
             <tr>
-              <td colSpan={7} className="py-8 text-center text-[var(--muted)]">
+              <td colSpan={9} className="py-8 text-center text-[var(--muted)]">
                 No checks yet. Start a verification to create checks.
               </td>
             </tr>

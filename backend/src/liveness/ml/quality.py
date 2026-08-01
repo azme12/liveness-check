@@ -13,6 +13,12 @@ class QualityReport:
     score: float
     blur_score: float
     brightness: float
+    contrast: float
+    glare_ratio: float
+    shadow_ratio: float
+    rotation_degrees: float
+    perspective_score: float
+    compression_score: float
     warnings: list[str]
 
     @property
@@ -31,7 +37,7 @@ def _to_bgr(image: np.ndarray) -> np.ndarray:
 
 
 def assess_quality(image: np.ndarray) -> QualityReport:
-    """Score blur, brightness, and size for capture rejection."""
+    """Score capture quality before OCR/authenticity processing."""
     bgr = _to_bgr(image)
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     warnings: list[str] = []
@@ -57,11 +63,83 @@ def assess_quality(image: np.ndarray) -> QualityReport:
     if glare_ratio > 0.12:
         warnings.append("glare")
 
-    score = float(np.clip(0.55 * blur_norm + 0.35 * (1.0 - abs(brightness - 0.5) * 2) + 0.1, 0, 1))
+    contrast = float(np.std(gray)) / 64.0
+    contrast_norm = float(np.clip(contrast, 0, 1))
+    if contrast_norm < 0.25:
+        warnings.append("low_contrast")
+
+    # Strong dark regions often indicate uneven illumination/shadow.
+    shadow_ratio = float(np.mean(gray < 35))
+    if shadow_ratio > 0.25:
+        warnings.append("heavy_shadow")
+
+    # Estimate dominant document rotation from long straight edges.
+    edges = cv2.Canny(gray, 60, 180)
+    lines = cv2.HoughLinesP(
+        edges,
+        1,
+        np.pi / 180,
+        threshold=max(30, min(h, w) // 8),
+        minLineLength=max(30, min(h, w) // 3),
+        maxLineGap=12,
+    )
+    angles: list[float] = []
+    if lines is not None:
+        for x1, y1, x2, y2 in lines[:, 0]:
+            angle = float(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+            normalized = ((angle + 45) % 90) - 45
+            angles.append(normalized)
+    rotation = float(np.median(angles)) if angles else 0.0
+    if abs(rotation) > 8:
+        warnings.append("document_rotated")
+
+    # Largest quadrilateral coverage is a lightweight perspective/cropping proxy.
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    perspective = 0.0
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
+        perimeter = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+        if len(approx) == 4:
+            perspective = max(perspective, float(cv2.contourArea(approx) / max(h * w, 1)))
+    if 0 < perspective < 0.35:
+        warnings.append("perspective_distortion")
+
+    # Block-boundary discontinuities indicate aggressive JPEG compression.
+    vertical = float(np.mean(np.abs(np.diff(gray.astype(np.float32), axis=1))[:, 7::8])) if w > 16 else 0.0
+    horizontal = float(np.mean(np.abs(np.diff(gray.astype(np.float32), axis=0))[7::8, :])) if h > 16 else 0.0
+    compression = float(np.clip(1.0 - (vertical + horizontal) / 80.0, 0, 1))
+    if compression < 0.35:
+        warnings.append("compression_artifacts")
+
+    brightness_score = 1.0 - abs(brightness - 0.5) * 2
+    score = float(
+        np.clip(
+            0.38 * blur_norm
+            + 0.20 * brightness_score
+            + 0.15 * contrast_norm
+            + 0.10 * (1.0 - min(glare_ratio / 0.12, 1.0))
+            + 0.07 * (1.0 - min(shadow_ratio / 0.25, 1.0))
+            + 0.05 * (1.0 - min(abs(rotation) / 15.0, 1.0))
+            + 0.05 * compression,
+            0,
+            1,
+        )
+    )
     if glare_ratio > 0.12:
         score *= 0.85
 
-    return QualityReport(score=score, blur_score=blur_norm, brightness=brightness, warnings=warnings)
+    return QualityReport(
+        score=score,
+        blur_score=blur_norm,
+        brightness=brightness,
+        contrast=contrast_norm,
+        glare_ratio=glare_ratio,
+        shadow_ratio=shadow_ratio,
+        rotation_degrees=rotation,
+        perspective_score=perspective,
+        compression_score=compression,
+        warnings=warnings,
+    )
 
 
 def decode_image(data: bytes, *, max_side: int | None = None) -> np.ndarray:

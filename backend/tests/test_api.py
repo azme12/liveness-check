@@ -62,8 +62,13 @@ async def test_health(client: AsyncClient):
     r = await client.get("/health")
     assert r.status_code == 200
     body = r.json()
-    assert body["status"] == "ok"
+    assert body["status"] in {"ok", "degraded"}
+    assert isinstance(body["ready"], bool)
     assert body["backends"]["db"] == "mongodb"
+    assert "liveness" in body["backends"]
+    assert "face" in body["backends"]
+    assert "face_mesh" in body["backends"]
+    assert "ocr" in body["backends"]
 
 
 @pytest.mark.asyncio

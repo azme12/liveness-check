@@ -69,7 +69,7 @@ def test_face_authentication_with_gallery_match():
                     "score": 0.92,
                     "passed": True,
                     "embedding_id": "femb_test",
-                    "backend": "histogram",
+                    "backend": "opencv_sface",
                 }
             },
         ),
@@ -92,13 +92,12 @@ def test_face_authentication_no_enrollment():
     assert "no_face_enrollment" in result.explainability
 
 
-def test_openface_opencv_fallback():
+def test_openface_unavailable_without_cli():
     from liveness.ml.openface import OpenFaceAnalyzer
 
     img = _blank_bgr()
     report = OpenFaceAnalyzer().analyze(img, face_bbox=(160, 120, 320, 320))
-    assert report.backend == "opencv_pose_fallback"
-    assert report.detection_certainty is not None
+    assert report.backend == "unavailable"
 
 
 def test_identity_check_respects_document_type_hint():

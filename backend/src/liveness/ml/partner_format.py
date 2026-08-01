@@ -20,6 +20,8 @@ def build_identity_result_breakdown(
     *,
     outcome: str = "clear",
     face_detected: bool = True,
+    previously_enrolled: str = "clear",
+    banned_faces: str = "clear",
 ) -> dict[str, Any]:
     facial = scores.get("facialSimilarityScore")
     if facial is None and scores.get("face_match_score") is not None:
@@ -27,6 +29,7 @@ def build_identity_result_breakdown(
     liveness = scores.get("livenessCheckScore")
     if liveness is None and scores.get("liveness_score") is not None:
         liveness = int(round(float(scores["liveness_score"]) * 100))
+    fraud = scores.get("fraudRiskScore")
 
     face_ok = bool(scores.get("face_match_passed"))
     live_ok = bool(scores.get("liveness_passed"))
@@ -36,10 +39,11 @@ def build_identity_result_breakdown(
         "breakdown": {
             "faceAnalysis": {
                 "facialSimilarity": _analysis_label(face_ok, outcome),
-                "previouslyEnrolledFace": "clear",
-                "bannedFacesAnalysis": "clear",
+                "previouslyEnrolledFace": previously_enrolled,
+                "bannedFacesAnalysis": banned_faces,
                 "breakdown": {
                     "facialSimilarityScore": int(facial) if facial is not None else 0,
+                    "fraudRiskScore": int(fraud) if fraud is not None else None,
                 },
             },
             "authenticityAnalysis": {

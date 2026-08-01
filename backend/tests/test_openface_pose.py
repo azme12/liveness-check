@@ -20,13 +20,12 @@ def test_evaluate_head_pose_rejects_roll():
     assert not evaluate_head_pose(yaw=0.0, pitch=0.0, roll=18.0, certainty=0.8, limits=limits)
 
 
-def test_openface_opencv_fallback():
+def test_openface_unavailable_without_pose():
     import numpy as np
 
     img = np.full((480, 640, 3), 180, dtype=np.uint8)
     report = get_openface_analyzer().analyze(img, face_bbox=(160, 120, 320, 320))
-    assert report.backend in {"opencv_pose_fallback", "insightface_pose", "openface_cli"}
-    assert report.detection_certainty is not None
+    assert report.backend == "unavailable"
 
 
 def test_selfie_profile_includes_head_pose_check():
