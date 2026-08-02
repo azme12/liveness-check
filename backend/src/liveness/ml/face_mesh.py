@@ -1,4 +1,4 @@
-"""Face mesh landmarks — MediaPipe Face Landmarker only."""
+"""Face mesh landmarks — MediaPipe Face Landmarker (Tasks API)."""
 
 from __future__ import annotations
 
@@ -91,7 +91,17 @@ def _pose_from_landmarks(landmarks: np.ndarray, image_size: tuple[int, int]) -> 
     return yaw, pitch, roll
 
 
-_PRODUCTION_MESH_BACKENDS = frozenset({"mediapipe_solutions", "mediapipe_tasks"})
+_PRODUCTION_MESH_BACKENDS = frozenset({"mediapipe_tasks", "mediapipe_solutions"})
+
+
+def _landmarker_model_path() -> Path | None:
+    settings = get_settings()
+    candidates = (
+        settings.models_dir / "face_landmarker.task",
+        Path(__file__).resolve().parents[3] / "models" / "face_landmarker.task",
+        Path("/app/models/face_landmarker.task"),
+    )
+    return next((path for path in candidates if path.is_file() and path.stat().st_size > 1_000_000), None)
 
 
 class FaceMeshAnalyzer:
@@ -99,9 +109,31 @@ class FaceMeshAnalyzer:
         self._mp_mesh = None
         self._mp_mode: str | None = None
         self._backend = "unavailable"
+        self.init_error: str | None = None
         settings = get_settings()
         if not settings.mediapipe_enabled:
+            self.init_error = "mediapipe_disabled"
             return
+
+        model_path = _landmarker_model_path()
+        if model_path is not None:
+            try:
+                from mediapipe.tasks import python
+                from mediapipe.tasks.python import vision
+
+                options = vision.FaceLandmarkerOptions(
+                    base_options=python.BaseOptions(model_asset_path=str(model_path)),
+                    running_mode=vision.RunningMode.IMAGE,
+                    num_faces=1,
+                    output_face_blendshapes=True,
+                )
+                self._mp_mesh = vision.FaceLandmarker.create_from_options(options)
+                self._mp_mode = "tasks"
+                self._backend = "mediapipe_tasks"
+                return
+            except Exception as exc:
+                self.init_error = f"tasks:{exc}"
+
         try:
             import mediapipe as mp
 
@@ -114,28 +146,11 @@ class FaceMeshAnalyzer:
                 )
                 self._mp_mode = "solutions"
                 self._backend = "mediapipe_solutions"
-            else:
-                from mediapipe.tasks import python
-                from mediapipe.tasks.python import vision
-
-                candidates = (
-                    settings.models_dir / "face_landmarker.task",
-                    Path(__file__).resolve().parents[3] / "models" / "face_landmarker.task",
-                    Path("/app/models/face_landmarker.task"),
-                )
-                model_path = next((path for path in candidates if path.exists()), None)
-                if model_path is None:
-                    return
-                options = vision.FaceLandmarkerOptions(
-                    base_options=python.BaseOptions(model_asset_path=str(model_path)),
-                    running_mode=vision.RunningMode.IMAGE,
-                    num_faces=1,
-                    output_face_blendshapes=True,
-                )
-                self._mp_mesh = vision.FaceLandmarker.create_from_options(options)
-                self._mp_mode = "tasks"
-                self._backend = "mediapipe_tasks"
-        except Exception:
+                return
+            if self.init_error is None:
+                self.init_error = "face_landmarker.task_missing"
+        except Exception as exc:
+            self.init_error = self.init_error or f"solutions:{exc}"
             self._mp_mesh = None
             self._mp_mode = None
             self._backend = "unavailable"
@@ -159,7 +174,7 @@ class FaceMeshAnalyzer:
             return FaceMeshReport(
                 backend="unavailable",
                 landmark_count=0,
-                details={"error": "mediapipe_required"},
+                details={"error": self.init_error or "mediapipe_required"},
             )
         report = self._analyze_mediapipe(
             image,

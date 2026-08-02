@@ -20,6 +20,10 @@ RUN apt-get update -o Acquire::Retries=5 \
       libgl1 \
       libglib2.0-0 \
       libgomp1 \
+      libegl1 \
+      libgles2 \
+      libsm6 \
+      libxext6 \
       curl \
       ca-certificates \
       tesseract-ocr \
@@ -47,7 +51,11 @@ RUN pip install --upgrade pip \
       curl -fsSL --retry 5 --retry-delay 3 \
         -o /app/models/liveness/minifas_v2.onnx \
         "https://github.com/yakhyo/face-anti-spoofing/releases/download/weights/MiniFASNetV2.onnx"; \
-    fi
+    fi \
+    && test -s /app/models/face_landmarker.task \
+    && test -s /app/models/face_detection_yunet_2023mar.onnx \
+    && test -s /app/models/face_recognition_sface_2021dec.onnx \
+    && test -s /app/models/liveness/minifas_v2.onnx
 
 EXPOSE 8100
 

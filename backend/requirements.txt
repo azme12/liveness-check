@@ -14,5 +14,4 @@ pillow>=11.0.0
 pytesseract>=0.3.13
 orjson>=3.10.0
 onnxruntime>=1.22.0
-# Render production image uses YuNet + SFace. Install `.[bio]` locally for InsightFace.
-mediapipe>=0.10.14,<1.0.0
+mediapipe>=1.0.0,<2.0.0

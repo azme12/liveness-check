@@ -101,7 +101,7 @@ def test_device_fingerprint_stable():
 def test_face_mesh_reports_production_backend():
     img = np.full((480, 640, 3), 180, dtype=np.uint8)
     report = get_face_mesh_analyzer().analyze(img, face_bbox=(160, 120, 320, 320))
-    assert report.backend in {"mediapipe_solutions", "mediapipe_tasks", "unavailable"}
+    assert report.backend in {"mediapipe_tasks", "mediapipe_solutions", "unavailable"}
 
 
 def test_replay_cues_score_range():

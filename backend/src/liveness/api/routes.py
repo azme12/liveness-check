@@ -112,6 +112,7 @@ async def health(engine: CheckEngine = Depends(get_check_engine)):
             )
             if active
         ],
+        "mesh_init_error": getattr(engine.mesh, "init_error", None),
     }
 
 
