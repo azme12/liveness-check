@@ -10,7 +10,45 @@ from liveness.db import find_one, get_database, update_one
 from liveness.ml import FaceGallery, decode_image
 from liveness.ml.device_intel import device_velocity
 from liveness.storage import BlobStore
-from liveness.types import CheckOutcome, CheckStatus, CheckType, utc_now
+from liveness.types import CheckOutcome, CheckResult, CheckStatus, CheckType, utc_now
+
+
+def _processing_error_result(message: str) -> CheckResult:
+    return CheckResult(
+        outcome=CheckOutcome.REJECT,
+        explainability=["processing_error"],
+        signals={
+            "reject_reasons": ["processing_error"],
+            "processing_error": message,
+        },
+    )
+
+
+async def _save_check_result(
+    check_id: str,
+    result: CheckResult,
+    *,
+    status: CheckStatus = CheckStatus.COMPLETE,
+    error: str | None = None,
+) -> None:
+    await update_one(
+        "checks",
+        {"id": check_id},
+        {
+            "outcome": result.outcome.value,
+            "result": result.model_dump(mode="json"),
+            "status": status.value,
+            "error": error,
+            "completed_at": utc_now(),
+            "updated_at": utc_now(),
+        },
+    )
+
+
+async def _save_processing_failure(check_id: str, exc: Exception) -> None:
+    message = str(exc) or exc.__class__.__name__
+    result = _processing_error_result(message)
+    await _save_check_result(check_id, result, status=CheckStatus.FAILED, error=message)
 
 
 async def process_check(check_id: str) -> None:
@@ -29,7 +67,19 @@ async def process_check(check_id: str) -> None:
         if check.get("document_id"):
             doc = await find_one("documents", {"id": check["document_id"]})
             if doc:
-                doc_img = decode_image(store.get(doc["storage_key"]))
+                try:
+                    doc_img = decode_image(store.get(doc["storage_key"]))
+                except FileNotFoundError as exc:
+                    result = CheckResult(
+                        outcome=CheckOutcome.REJECT,
+                        explainability=["document_media_missing"],
+                        signals={
+                            "reject_reasons": ["document_media_missing"],
+                            "processing_error": str(exc),
+                        },
+                    )
+                    await _save_check_result(check_id, result, error=str(exc))
+                    return
                 if doc.get("document_type"):
                     options["document_type"] = doc["document_type"]
                 if doc.get("issuing_country"):
@@ -38,7 +88,19 @@ async def process_check(check_id: str) -> None:
         if check.get("live_photo_id"):
             photo = await find_one("live_photos", {"id": check["live_photo_id"]})
             if photo:
-                live_img = decode_image(store.get(photo["storage_key"]))
+                try:
+                    live_img = decode_image(store.get(photo["storage_key"]))
+                except FileNotFoundError as exc:
+                    result = CheckResult(
+                        outcome=CheckOutcome.REJECT,
+                        explainability=["selfie_media_missing"],
+                        signals={
+                            "reject_reasons": ["selfie_media_missing"],
+                            "processing_error": str(exc),
+                        },
+                    )
+                    await _save_check_result(check_id, result, error=str(exc))
+                    return
                 if photo.get("device") and "device" not in options:
                     options["device"] = photo["device"]
 
@@ -66,7 +128,6 @@ async def process_check(check_id: str) -> None:
                     "backend": engine.faces._backend,
                 }
 
-        # Org-wide duplicate identity search for identity checks
         if check_type in {CheckType.IDENTITY, CheckType.ENHANCED_IDENTITY} and live_img is not None:
             org_id = check.get("org_id")
             if org_id:
@@ -121,7 +182,6 @@ async def process_check(check_id: str) -> None:
         }
         result.signals = signals
 
-        # Cache embedding after a successful clear identity for future duplicate search
         if (
             check_type in {CheckType.IDENTITY, CheckType.ENHANCED_IDENTITY}
             and live_img is not None
@@ -136,34 +196,13 @@ async def process_check(check_id: str) -> None:
                 label=client_name or check["client_id"],
             )
 
-        await update_one(
-            "checks",
-            {"id": check_id},
-            {
-                "outcome": result.outcome.value,
-                "result": result.model_dump(mode="json"),
-                "status": CheckStatus.COMPLETE.value,
-                "error": None,
-                "completed_at": utc_now(),
-                "updated_at": utc_now(),
-            },
-        )
+        await _save_check_result(check_id, result)
     except Exception as exc:  # noqa: BLE001
-        await update_one(
-            "checks",
-            {"id": check_id},
-            {
-                "status": CheckStatus.FAILED.value,
-                "error": str(exc),
-                "updated_at": utc_now(),
-            },
-        )
-    # Notify Trustanova webhooks when running inside the unified backend
+        await _save_processing_failure(check_id, exc)
     try:
         from app.services.webhooks import emit_check_finished_from_id
 
         await emit_check_finished_from_id(check_id)
     except Exception:  # noqa: BLE001
         pass
-    # touch DB to keep connection warm / ensure writes flushed
     _ = get_database()

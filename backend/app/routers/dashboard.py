@@ -806,21 +806,42 @@ async def _run_face_checks_after_upload(session_id: str, org_id: str) -> None:
             session=session,
             stage="face",
         )
-        stages = session.get("stages") or ["consent", "document", "face", "complete"]
-        next_stage = _next_stage(stages, "face")
+    except Exception:
+        return
+
+    checks = await db.checks.find(
+        {"session_id": session_id, "org_id": org_id},
+        {"_id": 0, "status": 1, "type": 1},
+    ).to_list(100)
+    identity_checks = [c for c in checks if c.get("type") == "identity_check"]
+    if any(c.get("status") == "failed" for c in identity_checks):
         await db.sessions.update_one(
             {"id": session_id},
             {
                 "$set": {
-                    "current_stage": next_stage,
-                    "status": "in_progress" if next_stage != "complete" else "completed",
+                    "current_stage": "face",
+                    "status": "in_progress",
                     "updated_at": utcnow(),
-                    **({"completed_at": utcnow()} if next_stage == "complete" else {}),
                 }
             },
         )
-    except Exception:
-        pass
+        return
+    if any(c.get("status") == "pending" for c in identity_checks):
+        return
+
+    stages = session.get("stages") or ["consent", "document", "face", "complete"]
+    next_stage = _next_stage(stages, "face")
+    await db.sessions.update_one(
+        {"id": session_id},
+        {
+            "$set": {
+                "current_stage": next_stage,
+                "status": "in_progress" if next_stage != "complete" else "completed",
+                "updated_at": utcnow(),
+                **({"completed_at": utcnow()} if next_stage == "complete" else {}),
+            }
+        },
+    )
 
 
 @router.get("/verify/{token}")
@@ -1134,6 +1155,40 @@ async def list_checks(
         "pages": _pages(total, page_size),
         "environment": environment,
     }
+
+
+@router.post("/checks/{check_id}/retry")
+async def retry_check(
+    check_id: str,
+    user: dict = Depends(get_current_user),
+    environment: str = Depends(environment_query),
+):
+    """Re-run a failed or stuck check."""
+    from liveness.api.worker import process_check
+
+    db = get_database()
+    filt = {**with_org_env(user["org_id"], environment), "id": check_id}
+    check = await db.checks.find_one(filt, {"_id": 0})
+    if not check:
+        raise HTTPException(status_code=404, detail="Check not found")
+    if check.get("status") not in {"failed", "pending"}:
+        raise HTTPException(status_code=400, detail="Only failed or pending checks can be retried")
+
+    await db.checks.update_one(
+        {"id": check_id},
+        {
+            "$set": {
+                "status": "pending",
+                "outcome": None,
+                "error": None,
+                "result": None,
+                "updated_at": utcnow(),
+            }
+        },
+    )
+    await process_check(check_id)
+    updated = await db.checks.find_one({"id": check_id}, {"_id": 0})
+    return serialize(updated)
 
 
 @router.patch("/checks/{check_id}/review")

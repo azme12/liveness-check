@@ -35,6 +35,7 @@ type Check = {
   type: string;
   status: string;
   outcome?: string;
+  error?: string | null;
   monitoring?: string;
   created_at: string;
   completed_at?: string;
@@ -275,6 +276,14 @@ export default function ClientDetailPage() {
     setChecks(refreshed);
   }
 
+  async function retryCheck(checkId: string) {
+    await api<Check>(`/api/checks/${checkId}/retry`, { method: "POST" });
+    const refreshed = await api<Paginated<Check>>(
+      `/api/clients/${params.id}/checks?page=1&page_size=10`,
+    );
+    setChecks(refreshed);
+  }
+
   async function uploadVerificationPhoto(
     kind: "document" | "live-photo",
     fileOverride?: File | null,
@@ -455,7 +464,7 @@ export default function ClientDetailPage() {
 
         <Panel className="p-5">
           {tab === "general" ? <GeneralTab client={client} /> : null}
-          {tab === "checks" ? <ChecksTab data={checks} onReview={reviewCheck} /> : null}
+          {tab === "checks" ? <ChecksTab data={checks} onReview={reviewCheck} onRetry={retryCheck} /> : null}
           {tab === "sessions" ? <SessionsTab data={sessions} /> : null}
           {tab === "documents" ? <DocumentsTab data={documents} /> : null}
           {tab !== "general" && tab !== "checks" && tab !== "sessions" && tab !== "documents" ? (
@@ -881,9 +890,11 @@ function GeneralTab({ client }: { client: Client }) {
 function ChecksTab({
   data,
   onReview,
+  onRetry,
 }: {
   data: Paginated<Check> | null;
   onReview: (checkId: string, decision: "clear" | "reject") => Promise<void>;
+  onRetry: (checkId: string) => Promise<void>;
 }) {
   return (
     <div>
@@ -914,6 +925,7 @@ function ChecksTab({
                   fraud?: { risk_score?: number; flags?: string[] };
                   active_challenge?: { required?: boolean; challenge?: string; passed?: boolean | null };
                   reject_reasons?: string[];
+                  processing_error?: string;
                 }
               | undefined;
             const fa = signals?.face_analysis;
@@ -929,13 +941,22 @@ function ChecksTab({
                 : typeof c.result?.risk_score === "number"
                   ? Math.round(Number(c.result.risk_score))
                   : signals?.fraud?.risk_score;
+            const processingError = signals?.processing_error || c.error || null;
             return (
             <tr key={c.id} className="border-b border-[var(--border)] last:border-0">
               <td className="py-3">{c.type.replaceAll("_", " ")}</td>
-              <td className="py-3 capitalize">{c.status}</td>
+              <td className="py-3 capitalize">
+                {c.status === "failed" ? (
+                  <span className="text-red-400">Failed</span>
+                ) : (
+                  c.status
+                )}
+              </td>
               <td className="py-3">
                 {c.outcome === "clear" ? (
                   <Badge tone="success">Clear</Badge>
+                ) : c.outcome === "reject" ? (
+                  <span className="capitalize text-red-400">Reject</span>
                 ) : (
                   <span className="capitalize text-[var(--muted)]">{c.outcome || "—"}</span>
                 )}
@@ -965,9 +986,21 @@ function ChecksTab({
                   </div>
                 ) : null}
                 {reasons.length ? <div className="text-red-400">{reasons[0]}</div> : null}
+                {processingError ? (
+                  <div className="text-red-400">{processingError}</div>
+                ) : null}
               </td>
               <td className="py-3 text-[var(--muted)]">{formatDate(c.completed_at || c.created_at)}</td>
               <td className="py-3">
+                {c.status === "failed" ? (
+                  <button
+                    type="button"
+                    className="rounded border border-blue-700 px-2 py-1 text-xs text-blue-300"
+                    onClick={() => void onRetry(c.id)}
+                  >
+                    Retry
+                  </button>
+                ) : null}
                 {c.outcome === "consider" && !c.review ? (
                   <div className="flex gap-1">
                     <button

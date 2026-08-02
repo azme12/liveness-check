@@ -62,6 +62,7 @@ type SessionData = {
     type: string;
     status: string;
     outcome?: string | null;
+    error?: string | null;
     result?: {
       signals?: {
         scores?: {
@@ -71,6 +72,8 @@ type SessionData = {
           liveness_score?: number | null;
           document_type?: string | null;
         };
+        processing_error?: string;
+        reject_reasons?: string[];
       };
       biometric?: { liveness?: string; liveness_score?: number; face_match_score?: number | null };
       document?: { quality_score?: number; document_type?: string | null };
@@ -115,6 +118,22 @@ function VerifyHostedInner() {
   useEffect(() => {
     load().catch(console.error);
   }, [load]);
+
+  const identityChecks = useMemo(
+    () => (data?.checks || []).filter((c) => c.type === "identity_check"),
+    [data?.checks],
+  );
+  const checksPending = identityChecks.some((c) => c.status === "pending");
+  const checksFailed = identityChecks.some((c) => c.status === "failed");
+  const checksComplete = identityChecks.length > 0 && identityChecks.every((c) => c.status === "complete");
+
+  useEffect(() => {
+    if (!checksPending) return;
+    const timer = window.setInterval(() => {
+      load().catch(console.error);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [checksPending, load]);
 
   async function progress(stage: string) {
     setBusy(true);
@@ -273,7 +292,10 @@ function VerifyHostedInner() {
             qrUrl={qrUrl}
             onProgress={progress}
             onUpload={upload}
-            completed={data.session.status === "completed"}
+            sessionCompleted={data.session.status === "completed"}
+            checksPending={checksPending}
+            checksFailed={checksFailed}
+            checksComplete={checksComplete}
             profileValidation={profileValidation}
           />
           {message ? <div className="mt-4 text-sm text-blue-700">{message}</div> : null}
@@ -305,10 +327,19 @@ function VerifyHostedInner() {
                 <div className="flex items-center justify-between gap-3">
                   <div>{check.label || check.type.replaceAll("_", " ")}</div>
                   <div className="text-right">
-                    <div className={check.status === "complete" ? "text-green-600" : "text-neutral-500"}>{check.status}</div>
-                    <div className="text-xs capitalize text-neutral-500">{check.outcome || "pending"}</div>
+                    <div className={check.status === "complete" ? "text-green-600" : check.status === "failed" ? "text-red-600" : "text-neutral-500"}>
+                      {check.status}
+                    </div>
+                    <div className="text-xs capitalize text-neutral-500">
+                      {check.outcome || (check.status === "failed" ? "error" : "pending")}
+                    </div>
                   </div>
                 </div>
+                {check.error || check.result?.signals?.processing_error ? (
+                  <div className="mt-2 rounded bg-red-50 px-2 py-1 text-xs text-red-700">
+                    {check.error || check.result?.signals?.processing_error}
+                  </div>
+                ) : null}
                 {check.result?.document || check.result?.biometric || scores ? (
                   <div className="mt-2 grid gap-2 text-xs text-neutral-600 md:grid-cols-4">
                     <div>
@@ -437,7 +468,10 @@ function StageCard({
   qrUrl,
   onProgress,
   onUpload,
-  completed,
+  sessionCompleted,
+  checksPending,
+  checksFailed,
+  checksComplete,
   profileValidation,
 }: {
   session: SessionData["session"];
@@ -459,14 +493,46 @@ function StageCard({
   qrUrl: string;
   onProgress: (stage: string) => void;
   onUpload: (kind: "document" | "live-photo") => void;
-  completed: boolean;
+  sessionCompleted: boolean;
+  checksPending: boolean;
+  checksFailed: boolean;
+  checksComplete: boolean;
   profileValidation?: ProfileValidation | null;
 }) {
-  if (completed || currentStage === "complete") {
+  if (checksPending) {
+    return (
+      <div className="mt-8 rounded-xl bg-amber-50 p-6">
+        <h3 className="text-xl font-semibold text-amber-800">Processing identity check…</h3>
+        <p className="mt-2 text-sm text-amber-900">Scores are being calculated. This page will update automatically.</p>
+      </div>
+    );
+  }
+
+  if (checksFailed) {
+    return (
+      <div className="mt-8 rounded-xl bg-red-50 p-6">
+        <h3 className="text-xl font-semibold text-red-700">Identity check failed</h3>
+        <p className="mt-2 text-sm text-red-800">
+          Upload your document and selfie again, or ask support to retry the check from the dashboard.
+        </p>
+      </div>
+    );
+  }
+
+  if ((sessionCompleted || currentStage === "complete") && checksComplete) {
     return (
       <div className="mt-8 rounded-xl bg-green-50 p-6">
         <h3 className="text-xl font-semibold text-green-700">Verification complete</h3>
         <p className="mt-2 text-sm text-green-800">Checks finished and results were stored for this client.</p>
+      </div>
+    );
+  }
+
+  if (sessionCompleted || currentStage === "complete") {
+    return (
+      <div className="mt-8 rounded-xl bg-amber-50 p-6">
+        <h3 className="text-xl font-semibold text-amber-800">Session finished — checks still running</h3>
+        <p className="mt-2 text-sm text-amber-900">Refresh this page in a moment to see the final identity result.</p>
       </div>
     );
   }
